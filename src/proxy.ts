@@ -552,10 +552,15 @@ export function startProxy(port = 50998): Promise<number> {
     });
     server.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
-        log.error(`[Proxy] Port ${port} is already in use by another application.`);
-        console.error(`\n[Error] Port ${port} is already in use.`);
-        console.error(`Please close the process occupying port ${port} and try again.\n`);
-        process.exit(1);
+        log.warn(`[Proxy] Port ${port} in use, falling back to dynamic port...`);
+        console.warn(`[Warn] Port ${port} is busy, using dynamic port. Custom models may not appear in agy.`);
+        console.warn(`[Warn] Close other instances or run: taskkill //F //IM agy.exe`);
+        server!.close();
+        server!.listen(0, '127.0.0.1', () => {
+          proxyPort = (server!.address() as import('net').AddressInfo).port;
+          log.info(`[Proxy] Listening on http://127.0.0.1:${proxyPort}`);
+          resolve(proxyPort);
+        });
       } else { reject(err); }
     });
   });
