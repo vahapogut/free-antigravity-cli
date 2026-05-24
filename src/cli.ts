@@ -41,7 +41,7 @@ function ensureAgyPatched(binPath: string): void {
 }
 
 async function startAndDelegate(agyArgs: string[]): Promise<void> {
-  if (agyArgs.length === 0) agyArgs.push('--prompt-interactive');
+  // agy starts interactive mode by default when no flags are given
   const agyBin = getAgyBin();
 
   if (!fs.existsSync(agyBin)) {
