@@ -1,43 +1,58 @@
 # Free Antigravity CLI
 
-**Open Source Community Edition** - A free, open-source CLI for Antigravity that supports custom AI models.
+**Open Source Community Edition** - Wraps the official [Antigravity CLI](https://antigravity.google/cli) (`agy`) with custom AI model support.
 
-Supports **OpenAI, Anthropic, Ollama, OpenRouter, Google AI Studio, and any OpenAI-compatible provider** alongside Gemini models.
+Use **OpenAI, Anthropic, Ollama, OpenRouter, Google AI Studio, and any OpenAI-compatible provider** alongside Gemini models -- all through the native `agy` CLI experience.
+
+## How It Works
+
+```
+antigravity
+  ├── Starts local proxy (port 50999)
+  ├── Auto-patches agy.exe to route through proxy
+  └── Delegates to agy CLI
+        ├── Google models → daily-cloudcode-pa.googleapis.com (transparent)
+        └── Custom models → injected by proxy into model list
+```
+
+The CLI is a thin wrapper: it starts a local HTTP proxy that intercepts `fetchAvailableModels` API calls, injects your custom model definitions, then hands off to the official `agy` CLI. You get the full native Antigravity CLI experience plus custom models.
 
 ## Quick Start
 
 ```bash
-# Install globally
+# 1. Install official Antigravity CLI first
+curl -fsSL https://antigravity.google/cli/install.cmd -o install.cmd && install.cmd && del install.cmd
+
+# 2. Install Free Antigravity CLI
 npm install -g free-antigravity-cli
 
-# Start interactive chat
-antigravity chat
+# 3. Add your custom models
+antigravity models add
 
-# Or use npx without installing
-npx free-antigravity-cli chat
+# 4. Start chatting (all models appear in agy's model selector)
+antigravity
 ```
 
-## Features
+## Prerequisites
 
-- **Custom AI Models**: Use OpenAI, Anthropic, Ollama, OpenRouter, and custom providers
-- **Interactive Chat REPL**: Streaming AI chat right in your terminal
-- **Model Management**: Add, remove, list, and import models via CLI
-- **Local Proxy**: Built-in proxy server for IDE integration
-- **API Key Encryption**: AES-256-CBC encryption for stored API keys
-- **Community Owned**: Apache 2.0 license, fully open source
+- **Node.js** >= 18
+- **Official Antigravity CLI** (`agy`) installed at `%LOCALAPPDATA%\agy\bin\agy.exe`
 
 ## Commands
 
 ```
-antigravity chat                  # Interactive chat (default)
-antigravity chat "prompt"         # One-shot prompt
-antigravity models list           # List all models
-antigravity models add            # Add a model (interactive)
-antigravity models remove <name>  # Remove a model
-antigravity models import         # Import from desktop Antigravity
-antigravity proxy                 # Start proxy server
-antigravity configure             # Show config info
+antigravity              Start interactive chat (proxy + agy)
+antigravity chat         Same as above
+antigravity models list  List configured custom models
+antigravity models add   Add a new custom model (interactive wizard)
+antigravity models remove <name>  Remove a custom model
+antigravity models import  Import models from desktop Antigravity
+antigravity configure    Show configuration info
+antigravity version      Show version
+antigravity help         Show this help
 ```
+
+Any arguments not listed above are passed directly to `agy` CLI.
 
 ## Supported Providers
 
@@ -56,13 +71,7 @@ antigravity configure             # Show config info
 
 ```bash
 npm install -g free-antigravity-cli
-antigravity chat
-```
-
-### npx (No Install)
-
-```bash
-npx free-antigravity-cli chat
+antigravity
 ```
 
 ### From Source
@@ -72,28 +81,9 @@ git clone https://github.com/vahapogut/free-antigravity-cli.git
 cd free-antigravity-cli
 npm install
 npm run build
-node dist/cli.js chat
+npm link
+antigravity
 ```
-
-## How It Works
-
-```
-Terminal (antigravity chat)
-  → CLI sends Gemini-format request
-  → Local proxy (port 50999) intercepts
-    ├── Google models → daily-cloudcode-pa.googleapis.com
-    └── Custom models → OpenAI / Anthropic / Ollama / etc.
-  → Response translated back to Gemini format
-  → Streaming output to terminal
-```
-
-The CLI includes a **built-in proxy server** that translates between Gemini format and provider-native formats:
-
-- **OpenAI**: `Gemini ↔ OpenAI Chat Completions`
-- **Anthropic**: `Gemini ↔ Anthropic Messages`
-- **Ollama**: `Gemini ↔ OpenAI-compatible` (port 11434)
-- **Google AI Studio**: Passthrough with URL routing
-- **Custom**: OpenAI-compatible format
 
 ## Configuration
 
@@ -109,34 +99,91 @@ Models are stored in `~/.free-antigravity/models.json`:
       "apiKey": "sk-...",
       "apiUrl": "https://api.openai.com/v1/chat/completions",
       "externalModelName": "gpt-4o"
+    },
+    {
+      "name": "models/claude-opus-4-7",
+      "displayName": "Claude Opus 4.7",
+      "provider": "anthropic",
+      "apiKey": "sk-ant-...",
+      "apiUrl": "https://api.anthropic.com/v1/messages",
+      "externalModelName": "claude-opus-4-7"
+    },
+    {
+      "name": "models/llama3",
+      "displayName": "Llama 3 (Local)",
+      "provider": "ollama",
+      "apiKey": "none",
+      "apiUrl": "http://localhost:11434/v1/chat/completions",
+      "externalModelName": "llama3"
     }
   ]
 }
 ```
 
-## Comparison with Google's Official CLI
+### Importing from Desktop Antigravity
+
+```bash
+antigravity models import
+```
+
+> **NOTE:** API keys from the desktop app are encrypted with Electron's `safeStorage` and cannot be decrypted by the CLI. After importing, re-enter your API keys via `antigravity models add`.
+
+## Technical Details
+
+### Binary Patching
+
+On first run, the CLI automatically patches `agy.exe` to replace the hardcoded Google API URL:
+
+```
+https://daily-cloudcode-pa.googleapis.com
+→ http://localhost:50999/v1internal/xxxxxxx
+```
+
+This forces `agy` to route its `fetchAvailableModels` calls through the local proxy, where custom model definitions are injected.
+
+The original binary is backed up at `agy.exe.bak`.
+
+### Proxy Server
+
+The proxy runs on `http://127.0.0.1:50999` (falls back to dynamic port if busy) and:
+
+1. **Intercepts `fetchAvailableModels`**: Merges custom model definitions into the response
+2. **Intercepts `generateContent`/`streamGenerateContent`**: Routes custom model requests to external APIs
+3. **Translates formats**: Gemini ↔ OpenAI / Anthropic / Ollama / Google AI Studio
+4. **Transparent forwarding**: All other requests pass through to Google unchanged
+
+### Provider Translation
+
+| Provider | Request Translation | Response Translation | Streaming |
+|---|---|---|---|
+| OpenAI | Gemini → Chat Completions | Chat Completions → Gemini | SSE delta → Gemini chunks |
+| Anthropic | Gemini → Messages API | Messages → Gemini | SSE events → Gemini chunks |
+| Ollama | Gemini → OpenAI-compatible | OpenAI → Gemini | Same as OpenAI |
+| Google AI Studio | Passthrough (native Gemini) | Passthrough | SSE chunks |
+| OpenRouter | Same as OpenAI | Same as OpenAI | Same as OpenAI |
+| Custom | Same as OpenAI | Same as OpenAI | Same as OpenAI |
+
+## Comparison
 
 | Feature | Free Antigravity CLI | Google agy CLI |
 |---|---|---|
 | Open Source | Yes (Apache 2.0) | No |
 | Custom Models | Yes | No |
-| OpenAI | Yes | No |
-| Anthropic (Claude) | Yes | No |
-| Ollama (Local) | Yes | No |
+| OpenAI / Anthropic / Ollama | Yes | No |
 | Gemini | Yes | Yes |
-| Size | ~200 KB | 151 MB |
+| All agy Features | Yes (wraps agy) | Yes |
+| Size | ~90 KB | 151 MB |
 | npm Install | Yes | No |
+| Auto-updates | Via npm | Built-in |
 
 ## Contributing
 
-Pull requests welcome! See the [GitHub repo](https://github.com/vahapogut/free-antigravity-cli).
+Pull requests welcome at [github.com/vahapogut/free-antigravity-cli](https://github.com/vahapogut/free-antigravity-cli).
 
 ## License
 
-Apache License 2.0 - see LICENSE file for details.
+Apache License 2.0 - see [LICENSE](LICENSE).
 
 ## Author
 
-**Vahap Ogut**
-
-[GitHub](https://github.com/vahapogut)
+**Vahap Ogut** - [GitHub](https://github.com/vahapogut)
