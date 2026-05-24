@@ -7,16 +7,21 @@ import { spawn, execSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { addModel, removeModel, listModels, ensureConfigDir, CustomModelEntry } from './config';
+import inquirer from 'inquirer';
+import { addModel, removeModel, listModels, ensureConfigDir, saveModels, CustomModelEntry } from './config';
 import { startProxy, getProxyPort, stopProxy } from './proxy';
-import { backupFile } from './crypto';
+import { backupFile, decryptString } from './crypto';
 
 function searchInPath(): string | null {
   try {
     const cmd = os.platform() === 'win32' ? 'where agy' : 'which agy';
     const out = execSync(cmd, { stdio: 'pipe' }).toString().trim().split('\r\n')[0].split('\n')[0];
     if (out && fs.existsSync(out)) return out;
-  } catch { /* ignore */ }
+  } catch (e) {
+    if (process.env.ANTIGRAVITY_DEBUG === 'true') {
+      console.debug('[Debug] searchInPath failed:', (e as Error).message);
+    }
+  }
   return null;
 }
 
@@ -57,7 +62,12 @@ function getAgyBin(): string {
 
 async function ensureProxy(): Promise<number> {
   try { return await startProxy(); }
-  catch { return getProxyPort() || 50998; }
+  catch (e) {
+    if (process.env.ANTIGRAVITY_DEBUG === 'true') {
+      console.warn('[Warn] startProxy failed, using cached port:', (e as Error).message);
+    }
+    return getProxyPort() || 50998;
+  }
 }
 
 function getVersion(): string {
@@ -67,7 +77,11 @@ function getVersion(): string {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
       return pkg.version || '1.0.4';
     }
-  } catch { /* ignore */ }
+  } catch (e) {
+    if (process.env.ANTIGRAVITY_DEBUG === 'true') {
+      console.debug('[Debug] getVersion failed:', (e as Error).message);
+    }
+  }
   return '1.0.4';
 }
 
@@ -76,7 +90,12 @@ function patchUrl(buf: Buffer, original: string, replacement: string): boolean {
   const replBuf = Buffer.from(replacement);
   const idx = buf.indexOf(origBuf);
   if (idx === -1) return false;
-  if (replBuf.length !== origBuf.length) return false;
+  if (replBuf.length !== origBuf.length) {
+    if (process.env.ANTIGRAVITY_DEBUG === 'true') {
+      console.warn(`[Warn] URL length mismatch: cannot patch "${original}" (len=${original.length}) → "${replacement}" (len=${replacement.length})`);
+    }
+    return false;
+  }
   replBuf.copy(buf, idx);
   return true;
 }
@@ -125,10 +144,14 @@ function ensureAgyPatched(binPath: string): void {
         try {
           execSync(`codesign --force --sign - "${binPath}"`, { stdio: 'ignore' });
           execSync(`xattr -d com.apple.quarantine "${binPath}"`, { stdio: 'ignore' });
-        } catch { /* ignore */ }
+        } catch { /* macOS code signing not available */ }
       }
     }
-  } catch { /* ignore */ }
+  } catch (e) {
+    if (process.env.ANTIGRAVITY_DEBUG === 'true') {
+      console.warn('[Warn] agy binary patching failed:', e);
+    }
+  }
 }
 
 async function startAndDelegate(agyArgs: string[]): Promise<void> {
@@ -183,7 +206,6 @@ async function main(): Promise<void> {
     }
 
     if (sub === 'add') {
-      const inquirer = require('inquirer');
       console.log('\n  Add Custom AI Model\n' + '─'.repeat(40));
       const answers = await inquirer.prompt([
         { type: 'list', name: 'provider', message: 'Provider:', choices: ['openai', 'anthropic', 'google', 'ollama', 'openrouter', 'custom'] },
@@ -215,12 +237,17 @@ async function main(): Promise<void> {
         const models = (JSON.parse(fs.readFileSync(desktopPath, 'utf-8')) as { models?: any[] }).models || [];
         if (models.length === 0) { console.log('No models in desktop config.'); return; }
         ensureConfigDir();
-        const { decryptString } = require('./crypto');
-        const { saveModels } = require('./config');
         const imported: CustomModelEntry[] = [];
         for (const m of models) {
           let key = m.apiKey || 'none';
-          if (m.encrypted && key !== 'none') { try { key = decryptString(key); } catch { /* keep */ } }
+          if (m.encrypted && key !== 'none') {
+            try { key = decryptString(key); }
+            catch (e2) {
+              if (process.env.ANTIGRAVITY_DEBUG === 'true') {
+                console.debug('[Debug] decryptString failed for model:', m.name, (e2 as Error).message);
+              }
+            }
+          }
           imported.push({ name: m.name, displayName: m.displayName, description: m.description, provider: m.provider, apiKey: key, apiUrl: m.apiUrl, externalModelName: m.externalModelName, allowUnauthorized: m.allowUnauthorized });
         }
         saveModels(imported);

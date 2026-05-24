@@ -46,7 +46,12 @@ export function loadModels(): CustomModelEntry[] {
     return models.map((m) => {
       if (m.encrypted && m.apiKey && m.apiKey !== 'none') {
         try { return { ...m, apiKey: decryptString(m.apiKey), encrypted: false }; }
-        catch { return m; }
+        catch (e) {
+          if (process.env.ANTIGRAVITY_DEBUG === 'true') {
+            console.debug('[Debug] decryptString failed for model:', m.name, (e as Error).message);
+          }
+          return m;
+        }
       }
       return m;
     });

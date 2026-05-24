@@ -46,10 +46,10 @@ interface GeminiRequestBody {
 let server: http.Server | null = null;
 let proxyPort = 0;
 
-import { modelToolCallIds, modelReasoningContent, activeStreamContexts, translatedToolCalls, stateTimestamps, touchStateTimestamp } from './proxy/shared';
+import { modelToolCallIds, modelReasoningContent, activeStreamContexts, translatedToolCalls, stateTimestamps, touchStateTimestamp, startCleanupInterval } from './proxy/shared';
 import { detectModelCapabilities } from './proxy/modelUtils';
 import * as registry from './proxy/registry';
-import { decryptString } from './crypto';
+import { decryptString, encryptString } from './crypto';
 import { validateCustomModel } from './schemaValidator';
 
 // --- Model Helpers ---
@@ -59,7 +59,7 @@ export function generateModelPlaceholderId(model: CustomModel): string {
   let hash = 5381;
   for (let i = 0; i < input.length; i++) {
     hash = (hash << 5) + hash + input.charCodeAt(i);
-    hash = hash & hash;
+    hash = hash >>> 0;
   }
   const placeholderNum = 400 + (Math.abs(hash) % 200);
   return `MODEL_PLACEHOLDER_M${placeholderNum}`;
@@ -107,7 +107,6 @@ export function loadCustomModels(): CustomModel[] {
       log.info('[Proxy] Migrating plaintext keys to encrypted format...');
       const encryptedModels = models.map((m) => {
         if (m.apiKey && m.apiKey !== 'none' && !m.encrypted) {
-          const { encryptString } = require('./crypto');
           return { ...m, apiKey: encryptString(m.apiKey), encrypted: true };
         }
         return m;
@@ -262,7 +261,11 @@ function handleCustomModelRequest(
             if (mapped) {
               res.write(`data: ${JSON.stringify({ response: { candidates: [mapped] }, traceId: '', metadata: {} })}\n\n`);
             }
-          } catch { /* partial chunk - ignore */ }
+          } catch {
+            if (process.env.ANTIGRAVITY_DEBUG === 'true') {
+              log.debug('[Proxy] Streaming chunk parse failed (partial chunk - safe to ignore)');
+            }
+          }
         }
       });
 
@@ -276,7 +279,11 @@ function handleCustomModelRequest(
               if (mapped) {
                 res.write(`data: ${JSON.stringify({ response: { candidates: [mapped] }, traceId: '', metadata: {} })}\n\n`);
               }
-            } catch { /* ignore */ }
+            } catch {
+              if (process.env.ANTIGRAVITY_DEBUG === 'true') {
+                log.debug('[Proxy] Final buffer chunk parse failed (safe to ignore)');
+              }
+            }
           }
         }
         const finalChunk = { response: { candidates: [{ content: { parts: [], role: 'model' }, finishReason: 'STOP', index: 0 }] }, traceId: '', metadata: {} };
@@ -580,6 +587,7 @@ export function startProxy(port = 50998): Promise<number> {
     server = http.createServer(handleRequest);
     server.listen(port, '127.0.0.1', () => {
       proxyPort = (server!.address() as import('net').AddressInfo).port;
+      startCleanupInterval();
       log.info(`[Proxy] Listening on http://127.0.0.1:${proxyPort}`);
       resolve(proxyPort);
     });
@@ -591,6 +599,7 @@ export function startProxy(port = 50998): Promise<number> {
         server!.close();
         server!.listen(0, '127.0.0.1', () => {
           proxyPort = (server!.address() as import('net').AddressInfo).port;
+          startCleanupInterval();
           log.info(`[Proxy] Listening on http://127.0.0.1:${proxyPort}`);
           resolve(proxyPort);
         });

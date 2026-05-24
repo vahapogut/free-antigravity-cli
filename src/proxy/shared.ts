@@ -98,5 +98,4 @@ export function stopCleanupInterval(): void {
   }
 }
 
-// Auto-start for backward compatibility (will be replaced by proxy.ts lifecycle)
-startCleanupInterval();
+// Cleanup is started explicitly by proxy.ts startProxy() to avoid side-effect imports

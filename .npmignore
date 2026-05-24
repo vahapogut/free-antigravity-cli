@@ -1,0 +1,10 @@
+src/
+tests/
+.github/
+.eslintrc.json
+.prettierrc
+jest.config.js
+tsconfig.json
+.gitignore
+*.log
+node_modules/

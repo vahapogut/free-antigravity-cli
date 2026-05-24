@@ -19,6 +19,7 @@ Use **OpenAI, Anthropic, Ollama, OpenRouter, Google AI Studio, and any OpenAI-co
 * [Installation](#installation)
 * [Configuration](#configuration)
 * [Technical Details](#technical-details)
+* [Development](#development)
 * [Testing](#testing)
 * [Comparison](#comparison)
 * [Contributing](#contributing)
@@ -209,6 +210,38 @@ The proxy runs on `http://127.0.0.1:50998` (with automatic fallback if busy) and
 | **OpenRouter** | Same as OpenAI | Same as OpenAI | Same as OpenAI |
 | **Custom** | Same as OpenAI | Same as OpenAI | Same as OpenAI |
 
+
+## Development
+
+The project uses **TypeScript** with ESLint and Prettier for code quality.
+
+```bash
+# Install dependencies
+npm install
+
+# Build
+npm run build
+
+# Run tests
+npm test
+
+# Lint
+npx eslint src/
+
+# Format
+npx prettier --write src/
+```
+
+### Code Quality
+
+| Tool | Purpose |
+|---|---|
+| **TypeScript** | Strict type checking (`tsc --noEmit`) |
+| **ESLint** | Static analysis, no `require()` enforcement |
+| **Prettier** | Consistent code formatting |
+| **Jest** | Unit + integration tests |
+
+---
 
 ## Testing
 
