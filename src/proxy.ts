@@ -388,6 +388,9 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     const fullBody = Buffer.concat(bodyChunks);
 
     log.info(`[Proxy] ${req.method} ${req.url}`);
+    if (process.env.ANTIGRAVITY_DEBUG) {
+      log.info(`[Proxy] Headers: ${JSON.stringify(req.headers)}`);
+    }
 
     // 1. Intercept fetchAvailableModels - inject custom models
     if (req.url!.includes('/v1internal:fetchAvailableModels')) {
@@ -398,6 +401,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       fwdHeaders['host'] = 'daily-cloudcode-pa.googleapis.com';
       delete fwdHeaders['connection'];
       delete fwdHeaders['keep-alive'];
+      delete fwdHeaders['accept-encoding'];
 
       const googleReq = https.request(new URL(req.url!, targetUrl), { method: req.method, headers: fwdHeaders as Record<string, string> }, (googleRes) => {
         googleReq.setTimeout(30_000, () => { googleReq.destroy(); if (!res.headersSent) { res.writeHead(200); res.end(JSON.stringify({ models: {} })); } });
