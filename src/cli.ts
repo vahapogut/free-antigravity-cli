@@ -76,26 +76,43 @@ function ensureAgyPatched(binPath: string): void {
   try {
     const buf = fs.readFileSync(binPath);
     const original = Buffer.from('https://daily-cloudcode-pa.googleapis.com');
-    const replacement = Buffer.from('http://localhost:50998/v1internal/xxxxxxx');
-    if (buf.includes(replacement)) return;
-    const idx = buf.indexOf(original);
-    if (idx === -1) return;
-    try {
-      backupFile(binPath);
-    } catch { /* ignore backup failure */ }
-    replacement.copy(buf, idx);
-    fs.writeFileSync(binPath, buf);
-    console.log('[ok] agy binary patched for custom model support.');
+    const newPatch = Buffer.from('http://localhost:50998/v1internal/xxxxxxx');
+    const oldPatch = Buffer.from('http://localhost:50999/v1internal/xxxxxxx');
+    const backup = Buffer.from('https://daily-cloudcode-pa.googleapis.com');
 
-    // macOS platform specific adjustments
-    if (os.platform() === 'darwin') {
-      try {
-        console.log('Re-signing patched binary and removing macOS quarantine flags...');
-        execSync(`codesign --force --sign - "${binPath}"`, { stdio: 'ignore' });
-        execSync(`xattr -d com.apple.quarantine "${binPath}"`, { stdio: 'ignore' });
-        console.log('[ok] macOS binary prepared successfully.');
-      } catch (err) {
-        console.warn('[warning] Failed to re-sign or remove quarantine flags from agy. It may fail to execute.');
+    // Already up to date
+    if (buf.includes(newPatch)) return;
+
+    let patched = false;
+
+    // Upgrade old patch (50999 → 50998)
+    const oldIdx = buf.indexOf(oldPatch);
+    if (oldIdx !== -1) {
+      backupFile(binPath);
+      newPatch.copy(buf, oldIdx);
+      patched = true;
+      console.log('[ok] agy binary patch upgraded (50999 → 50998).');
+    }
+
+    // Fresh patch (original Google URL → 50998)
+    if (!patched) {
+      const origIdx = buf.indexOf(original);
+      if (origIdx !== -1) {
+        backupFile(binPath);
+        newPatch.copy(buf, origIdx);
+        patched = true;
+        console.log('[ok] agy binary patched for custom model support.');
+      }
+    }
+
+    if (patched) {
+      fs.writeFileSync(binPath, buf);
+      // macOS adjustments
+      if (os.platform() === 'darwin') {
+        try {
+          execSync(`codesign --force --sign - "${binPath}"`, { stdio: 'ignore' });
+          execSync(`xattr -d com.apple.quarantine "${binPath}"`, { stdio: 'ignore' });
+        } catch { /* ignore */ }
       }
     }
   } catch { /* ignore */ }
