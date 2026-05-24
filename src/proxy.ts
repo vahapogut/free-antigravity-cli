@@ -552,12 +552,10 @@ export function startProxy(): Promise<number> {
     });
     server.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
-        log.warn('[Proxy] Port 50999 in use, trying dynamic...');
-        server!.listen(0, '127.0.0.1', () => {
-          proxyPort = (server!.address() as import('net').AddressInfo).port;
-          log.info(`[Proxy] Listening on http://127.0.0.1:${proxyPort}`);
-          resolve(proxyPort);
-        });
+        log.error('[Proxy] Port 50999 is already in use by another application.');
+        console.error('\n[Error] Port 50999 is already in use.');
+        console.error('Please close the process occupying port 50999 and try again.\n');
+        process.exit(1);
       } else { reject(err); }
     });
   });

@@ -1,8 +1,30 @@
 # Free Antigravity CLI
 
-**Open Source Community Edition** - Wraps the official [Antigravity CLI](https://antigravity.google/cli) (`agy`) with custom AI model support.
+[![npm version](https://img.shields.io/npm/v/free-antigravity-cli.svg?style=flat-edge)](https://www.npmjs.com/package/free-antigravity-cli)
+[![license](https://img.shields.io/github/license/vahapogut/free-antigravity-cli.svg?style=flat-edge)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/vahapogut/free-antigravity-cli.svg?style=flat-edge)](https://github.com/vahapogut/free-antigravity-cli/stargazers)
 
-Use **OpenAI, Anthropic, Ollama, OpenRouter, Google AI Studio, and any OpenAI-compatible provider** alongside Gemini models -- all through the native `agy` CLI experience.
+**Open Source Community Edition** — Wraps the official [Antigravity CLI](https://antigravity.google/cli) (`agy`) with custom AI model support.
+
+Use **OpenAI, Anthropic, Ollama, OpenRouter, Google AI Studio, and any OpenAI-compatible provider** alongside Gemini models — all through the native `agy` CLI experience.
+
+---
+
+## Quick Links
+
+* [How It Works](#how-it-works)
+* [Quick Start](#quick-start)
+* [Prerequisites](#prerequisites)
+* [Commands](#commands)
+* [Supported Providers](#supported-providers)
+* [Installation](#installation)
+* [Configuration](#configuration)
+* [Technical Details](#technical-details)
+* [Comparison](#comparison)
+* [Contributing](#contributing)
+* [License](#license)
+
+---
 
 ## How It Works
 
@@ -16,6 +38,8 @@ antigravity
 ```
 
 The CLI is a thin wrapper: it starts a local HTTP proxy that intercepts `fetchAvailableModels` API calls, injects your custom model definitions, then hands off to the official `agy` CLI. You get the full native Antigravity CLI experience plus custom models.
+
+---
 
 ## Quick Start
 
@@ -33,10 +57,14 @@ antigravity models add
 antigravity
 ```
 
+---
+
 ## Prerequisites
 
-- **Node.js** >= 18
-- **Official Antigravity CLI** (`agy`) installed at `%LOCALAPPDATA%\agy\bin\agy.exe`
+* **Node.js** >= 18
+* **Official Antigravity CLI** (`agy`) installed at `%LOCALAPPDATA%\agy\bin\agy.exe`
+
+---
 
 ## Commands
 
@@ -54,16 +82,20 @@ antigravity help         Show this help
 
 Any arguments not listed above are passed directly to `agy` CLI.
 
+---
+
 ## Supported Providers
 
 | Provider | CLI Value | Auth |
 |---|---|---|
-| OpenAI | `openai` | API Key (`sk-...`) |
-| Anthropic | `anthropic` | API Key (`sk-ant-...`) |
-| Google AI Studio | `google` | API Key (`AIza...`) |
-| Ollama (Local) | `ollama` | None |
-| OpenRouter | `openrouter` | API Key |
-| Custom (OpenAI-compatible) | `custom` | API Key |
+| **OpenAI** | `openai` | API Key (`sk-...`) |
+| **Anthropic** | `anthropic` | API Key (`sk-ant-...`) |
+| **Google AI Studio** | `google` | API Key (`AIza...`) |
+| **Ollama (Local)** | `ollama` | None |
+| **OpenRouter** | `openrouter` | API Key |
+| **Custom (OpenAI-compatible)** | `custom` | API Key |
+
+---
 
 ## Installation
 
@@ -84,6 +116,8 @@ npm run build
 npm link
 antigravity
 ```
+
+---
 
 ## Configuration
 
@@ -128,6 +162,8 @@ antigravity models import
 
 > **NOTE:** API keys from the desktop app are encrypted with Electron's `safeStorage` and cannot be decrypted by the CLI. After importing, re-enter your API keys via `antigravity models add`.
 
+---
+
 ## Technical Details
 
 ### Binary Patching
@@ -145,7 +181,7 @@ The original binary is backed up at `agy.exe.bak`.
 
 ### Proxy Server
 
-The proxy runs on `http://127.0.0.1:50999` (falls back to dynamic port if busy) and:
+The proxy runs on `http://127.0.0.1:50999` and:
 
 1. **Intercepts `fetchAvailableModels`**: Merges custom model definitions into the response
 2. **Intercepts `generateContent`/`streamGenerateContent`**: Routes custom model requests to external APIs
@@ -156,34 +192,42 @@ The proxy runs on `http://127.0.0.1:50999` (falls back to dynamic port if busy) 
 
 | Provider | Request Translation | Response Translation | Streaming |
 |---|---|---|---|
-| OpenAI | Gemini → Chat Completions | Chat Completions → Gemini | SSE delta → Gemini chunks |
-| Anthropic | Gemini → Messages API | Messages → Gemini | SSE events → Gemini chunks |
-| Ollama | Gemini → OpenAI-compatible | OpenAI → Gemini | Same as OpenAI |
-| Google AI Studio | Passthrough (native Gemini) | Passthrough | SSE chunks |
-| OpenRouter | Same as OpenAI | Same as OpenAI | Same as OpenAI |
-| Custom | Same as OpenAI | Same as OpenAI | Same as OpenAI |
+| **OpenAI** | Gemini → Chat Completions | Chat Completions → Gemini | SSE delta → Gemini chunks |
+| **Anthropic** | Gemini → Messages API | Messages → Gemini | SSE events → Gemini chunks |
+| **Ollama** | Gemini → OpenAI-compatible | OpenAI → Gemini | Same as OpenAI |
+| **Google AI Studio** | Passthrough (native Gemini) | Passthrough | SSE chunks |
+| **OpenRouter** | Same as OpenAI | Same as OpenAI | Same as OpenAI |
+| **Custom** | Same as OpenAI | Same as OpenAI | Same as OpenAI |
+
+---
 
 ## Comparison
 
 | Feature | Free Antigravity CLI | Google agy CLI |
 |---|---|---|
-| Open Source | Yes (Apache 2.0) | No |
-| Custom Models | Yes | No |
-| OpenAI / Anthropic / Ollama | Yes | No |
-| Gemini | Yes | Yes |
-| All agy Features | Yes (wraps agy) | Yes |
-| Size | ~90 KB | 151 MB |
-| npm Install | Yes | No |
-| Auto-updates | Via npm | Built-in |
+| **Open Source** | Yes (Apache 2.0) | No |
+| **Custom Models** | Yes | No |
+| **OpenAI / Anthropic / Ollama** | Yes | No |
+| **Gemini** | Yes | Yes |
+| **All agy Features** | Yes (wraps agy) | Yes |
+| **Size** | ~90 KB | 151 MB |
+| **npm Install** | Yes | No |
+| **Auto-updates** | Via npm | Built-in |
+
+---
 
 ## Contributing
 
 Pull requests welcome at [github.com/vahapogut/free-antigravity-cli](https://github.com/vahapogut/free-antigravity-cli).
 
+---
+
 ## License
 
 Apache License 2.0 - see [LICENSE](LICENSE).
 
+---
+
 ## Author
 
-**Vahap Ogut** - [GitHub](https://github.com/vahapogut)
+**Developed By [Abdulvahap Ogut](https://www.linkedin.com/in/abdulvahap-ogut-343992398/)**

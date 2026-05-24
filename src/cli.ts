@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { addModel, removeModel, listModels, ensureConfigDir, CustomModelEntry } from './config';
 import { startProxy, getProxyPort, stopProxy } from './proxy';
+import { backupFile } from './crypto';
 
 function getAgyBin(): string {
   const locations = [
@@ -25,6 +26,17 @@ async function ensureProxy(): Promise<number> {
   catch { return getProxyPort() || 50999; }
 }
 
+function getVersion(): string {
+  try {
+    const pkgPath = path.join(__dirname, '..', 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+      return pkg.version || '1.0.3';
+    }
+  } catch { /* ignore */ }
+  return '1.0.3';
+}
+
 function ensureAgyPatched(binPath: string): void {
   if (!fs.existsSync(binPath)) return;
   try {
@@ -34,6 +46,9 @@ function ensureAgyPatched(binPath: string): void {
     if (buf.includes(replacement)) return;
     const idx = buf.indexOf(original);
     if (idx === -1) return;
+    try {
+      backupFile(binPath);
+    } catch { /* ignore backup failure */ }
     replacement.copy(buf, idx);
     fs.writeFileSync(binPath, buf);
     console.log('[ok] agy binary patched for custom model support.');
@@ -141,12 +156,12 @@ async function main(): Promise<void> {
   }
 
   if (cmd === 'version' || cmd === '--version' || cmd === '-V' || cmd === '-v') {
-    console.log('Free Antigravity CLI v1.0.0 (Community Edition)');
+    console.log(`Free Antigravity CLI v${getVersion()} (Community Edition)`);
     return;
   }
 
   if (cmd === 'help' || cmd === '--help' || cmd === '-h') {
-    console.log(`Free Antigravity CLI v1.0.0 - Community Edition
+    console.log(`Free Antigravity CLI v${getVersion()} - Community Edition
 Wraps the official agy CLI with custom model support.
 
 Commands:
