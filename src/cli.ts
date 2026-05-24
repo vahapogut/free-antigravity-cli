@@ -3,7 +3,7 @@
  * Free Antigravity CLI - Community Edition
  * Wraps the official agy CLI with custom model support via a local proxy.
  */
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -11,14 +11,48 @@ import { addModel, removeModel, listModels, ensureConfigDir, CustomModelEntry } 
 import { startProxy, getProxyPort, stopProxy } from './proxy';
 import { backupFile } from './crypto';
 
+function searchInPath(): string | null {
+  try {
+    const cmd = os.platform() === 'win32' ? 'where agy' : 'which agy';
+    const out = execSync(cmd, { stdio: 'pipe' }).toString().trim().split('\r\n')[0].split('\n')[0];
+    if (out && fs.existsSync(out)) return out;
+  } catch { /* ignore */ }
+  return null;
+}
+
 function getAgyBin(): string {
+  // 1. User Override
+  if (process.env.AGY_BIN && fs.existsSync(process.env.AGY_BIN)) {
+    return process.env.AGY_BIN;
+  }
+
+  // 2. PATH Search
+  const pathBin = searchInPath();
+  if (pathBin) return pathBin;
+
+  // 3. OS-specific defaults
+  const isWin = os.platform() === 'win32';
+  const binName = isWin ? 'agy.exe' : 'agy';
   const locations = [
-    path.join(os.homedir(), 'AppData', 'Local', 'agy', 'bin', 'agy.exe'),
+    // Windows default
+    path.join(os.homedir(), 'AppData', 'Local', 'agy', 'bin', binName),
+    // macOS default Application Support
+    path.join(os.homedir(), 'Library', 'Application Support', 'agy', 'bin', binName),
+    // macOS/Linux local share
+    path.join(os.homedir(), '.local', 'share', 'agy', 'bin', binName),
+    // macOS/Linux local bin fallback
+    path.join(os.homedir(), '.local', 'bin', binName),
   ];
+
   for (const loc of locations) {
     if (fs.existsSync(loc)) return loc;
   }
-  return path.join(os.homedir(), 'AppData', 'Local', 'agy', 'bin', 'agy.exe');
+
+  // 4. Default fallback based on platform
+  if (isWin) {
+    return path.join(os.homedir(), 'AppData', 'Local', 'agy', 'bin', 'agy.exe');
+  }
+  return path.join(os.homedir(), '.local', 'share', 'agy', 'bin', 'agy');
 }
 
 async function ensureProxy(): Promise<number> {
@@ -31,10 +65,10 @@ function getVersion(): string {
     const pkgPath = path.join(__dirname, '..', 'package.json');
     if (fs.existsSync(pkgPath)) {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-      return pkg.version || '1.0.3';
+      return pkg.version || '1.0.4';
     }
   } catch { /* ignore */ }
-  return '1.0.3';
+  return '1.0.4';
 }
 
 function ensureAgyPatched(binPath: string): void {
@@ -52,6 +86,18 @@ function ensureAgyPatched(binPath: string): void {
     replacement.copy(buf, idx);
     fs.writeFileSync(binPath, buf);
     console.log('[ok] agy binary patched for custom model support.');
+
+    // macOS platform specific adjustments
+    if (os.platform() === 'darwin') {
+      try {
+        console.log('Re-signing patched binary and removing macOS quarantine flags...');
+        execSync(`codesign --force --sign - "${binPath}"`, { stdio: 'ignore' });
+        execSync(`xattr -d com.apple.quarantine "${binPath}"`, { stdio: 'ignore' });
+        console.log('[ok] macOS binary prepared successfully.');
+      } catch (err) {
+        console.warn('[warning] Failed to re-sign or remove quarantine flags from agy. It may fail to execute.');
+      }
+    }
   } catch { /* ignore */ }
 }
 
@@ -60,8 +106,11 @@ async function startAndDelegate(agyArgs: string[]): Promise<void> {
   const agyBin = getAgyBin();
 
   if (!fs.existsSync(agyBin)) {
-    console.error(`\nagy CLI not found at: ${agyBin}`);
-    console.error('Install: curl -fsSL https://antigravity.google/cli/install.cmd | cmd');
+    console.error(`\n[Error] agy CLI not found!`);
+    console.error(`Search location checked: ${agyBin}`);
+    console.error('\nPlease install the official Antigravity CLI first.');
+    console.error('If installed in a custom location, set the AGY_BIN environment variable:');
+    console.error('  export AGY_BIN=/path/to/agy\n');
     process.exit(1);
   }
 
@@ -76,7 +125,15 @@ async function startAndDelegate(agyArgs: string[]): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+  let args = process.argv.slice(2);
+
+  // Parse and strip verbose/debug flags
+  const isDebug = args.includes('--verbose') || args.includes('--debug') || process.env.ANTIGRAVITY_DEBUG === 'true';
+  if (isDebug) {
+    process.env.ANTIGRAVITY_DEBUG = 'true';
+  }
+  args = args.filter(a => a !== '--verbose' && a !== '--debug');
+
   const cmd = args[0];
 
   // --- Model management ---

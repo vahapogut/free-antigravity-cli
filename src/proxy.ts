@@ -542,19 +542,19 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
 // --- Server Start/Stop ---
 
-export function startProxy(): Promise<number> {
+export function startProxy(port = 50999): Promise<number> {
   return new Promise((resolve, reject) => {
     server = http.createServer(handleRequest);
-    server.listen(50999, '127.0.0.1', () => {
+    server.listen(port, '127.0.0.1', () => {
       proxyPort = (server!.address() as import('net').AddressInfo).port;
       log.info(`[Proxy] Listening on http://127.0.0.1:${proxyPort}`);
       resolve(proxyPort);
     });
     server.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
-        log.error('[Proxy] Port 50999 is already in use by another application.');
-        console.error('\n[Error] Port 50999 is already in use.');
-        console.error('Please close the process occupying port 50999 and try again.\n');
+        log.error(`[Proxy] Port ${port} is already in use by another application.`);
+        console.error(`\n[Error] Port ${port} is already in use.`);
+        console.error(`Please close the process occupying port ${port} and try again.\n`);
         process.exit(1);
       } else { reject(err); }
     });
