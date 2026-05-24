@@ -20,6 +20,7 @@ Use **OpenAI, Anthropic, Ollama, OpenRouter, Google AI Studio, and any OpenAI-co
 * [Installation](#installation)
 * [Configuration](#configuration)
 * [Technical Details](#technical-details)
+* [Testing](#testing)
 * [Comparison](#comparison)
 * [Contributing](#contributing)
 * [License](#license)
@@ -62,7 +63,14 @@ antigravity
 ## Prerequisites
 
 * **Node.js** >= 18
-* **Official Antigravity CLI** (`agy`) installed at `%LOCALAPPDATA%\agy\bin\agy.exe`
+* **Official Antigravity CLI** (`agy`) installed at one of the default locations:
+  * **Windows**: `%LOCALAPPDATA%\agy\bin\agy.exe`
+  * **macOS**: `~/Library/Application Support/agy/bin/agy` or `~/.local/share/agy/bin/agy`
+  * **Linux**: `~/.local/share/agy/bin/agy`
+* **Custom Binary Path**: If you installed `agy` in a custom location, you can set the path using the `AGY_BIN` environment variable:
+  ```bash
+  export AGY_BIN="/path/to/custom/agy"
+  ```
 
 ---
 
@@ -79,6 +87,9 @@ antigravity configure    Show configuration info
 antigravity version      Show version
 antigravity help         Show this help
 ```
+
+### Options
+* **`--verbose` / `--debug`**: Can be passed to any command to enable proxy request/response logging for troubleshooting.
 
 Any arguments not listed above are passed directly to `agy` CLI.
 
@@ -168,7 +179,7 @@ antigravity models import
 
 ### Binary Patching
 
-On first run, the CLI automatically patches `agy.exe` to replace the hardcoded Google API URL:
+On first run, the CLI automatically patches `agy` to replace the hardcoded Google API URL:
 
 ```
 https://daily-cloudcode-pa.googleapis.com
@@ -177,7 +188,10 @@ https://daily-cloudcode-pa.googleapis.com
 
 This forces `agy` to route its `fetchAvailableModels` calls through the local proxy, where custom model definitions are injected.
 
-The original binary is backed up at `agy.exe.bak`.
+The original binary is backed up at `agy.exe.bak` (or `agy.bak` on macOS/Linux).
+
+#### macOS Code Signing and Quarantine
+On macOS, patching the binary invalidates its code signature. The CLI automatically runs ad-hoc self-signing via `codesign` and clears macOS quarantine flags via `xattr` to ensure the patched binary runs without OS security alerts.
 
 ### Proxy Server
 
@@ -198,6 +212,17 @@ The proxy runs on `http://127.0.0.1:50999` and:
 | **Google AI Studio** | Passthrough (native Gemini) | Passthrough | SSE chunks |
 | **OpenRouter** | Same as OpenAI | Same as OpenAI | Same as OpenAI |
 | **Custom** | Same as OpenAI | Same as OpenAI | Same as OpenAI |
+
+---
+
+## Testing
+
+A comprehensive unit and integration test suite is provided using Jest to verify translation mechanics and proxy interception.
+
+```bash
+# Run tests
+npm test
+```
 
 ---
 
