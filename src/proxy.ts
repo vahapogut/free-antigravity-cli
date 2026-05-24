@@ -440,6 +440,26 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
               googleJson.models = modelsMap;
             }
 
+            // Inject custom model slugs into agentModelSorts so they appear in the model selector
+            const customSlugs = customModels.map((m) => m._slug).filter(Boolean) as string[];
+            if (customSlugs.length > 0) {
+              if (googleJson.agentModelSorts && Array.isArray(googleJson.agentModelSorts)) {
+                (googleJson.agentModelSorts as { groups?: { modelIds?: string[] }[] }[]).forEach((sort) => {
+                  if (sort.groups && Array.isArray(sort.groups)) {
+                    sort.groups.forEach((group) => {
+                      if (group.modelIds && Array.isArray(group.modelIds)) {
+                        customSlugs.forEach((slug) => {
+                          if (!group.modelIds!.includes(slug)) {
+                            group.modelIds!.push(slug);
+                          }
+                        });
+                      }
+                    });
+                  }
+                });
+              }
+            }
+
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(googleJson));
           } catch (err) {
