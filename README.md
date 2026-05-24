@@ -8,7 +8,6 @@
 
 Use **OpenAI, Anthropic, Ollama, OpenRouter, Google AI Studio, and any OpenAI-compatible provider** alongside Gemini models — all through the native `agy` CLI experience.
 
----
 
 ## Quick Links
 
@@ -25,7 +24,6 @@ Use **OpenAI, Anthropic, Ollama, OpenRouter, Google AI Studio, and any OpenAI-co
 * [Contributing](#contributing)
 * [License](#license)
 
----
 
 ## How It Works
 
@@ -40,7 +38,6 @@ antigravity
 
 The CLI is a thin wrapper: it starts a local HTTP proxy that intercepts `fetchAvailableModels` API calls, injects your custom model definitions, then hands off to the official `agy` CLI. You get the full native Antigravity CLI experience plus custom models.
 
----
 
 ## Quick Start
 
@@ -58,7 +55,6 @@ antigravity models add
 antigravity
 ```
 
----
 
 ## Prerequisites
 
@@ -72,7 +68,6 @@ antigravity
   export AGY_BIN="/path/to/custom/agy"
   ```
 
----
 
 ## Commands
 
@@ -93,7 +88,6 @@ antigravity help         Show this help
 
 Any arguments not listed above are passed directly to `agy` CLI.
 
----
 
 ## Supported Providers
 
@@ -106,7 +100,6 @@ Any arguments not listed above are passed directly to `agy` CLI.
 | **OpenRouter** | `openrouter` | API Key |
 | **Custom (OpenAI-compatible)** | `custom` | API Key |
 
----
 
 ## Installation
 
@@ -128,7 +121,6 @@ npm link
 antigravity
 ```
 
----
 
 ## Configuration
 
@@ -173,7 +165,6 @@ antigravity models import
 
 > **NOTE:** API keys from the desktop app are encrypted with Electron's `safeStorage` and cannot be decrypted by the CLI. After importing, re-enter your API keys via `antigravity models add`.
 
----
 
 ## Technical Details
 
@@ -213,7 +204,6 @@ The proxy runs on `http://127.0.0.1:50998` and:
 | **OpenRouter** | Same as OpenAI | Same as OpenAI | Same as OpenAI |
 | **Custom** | Same as OpenAI | Same as OpenAI | Same as OpenAI |
 
----
 
 ## Testing
 
@@ -224,7 +214,6 @@ A comprehensive unit and integration test suite is provided using Jest to verify
 npm test
 ```
 
----
 
 ## Comparison
 
@@ -239,19 +228,16 @@ npm test
 | **npm Install** | Yes | No |
 | **Auto-updates** | Via npm | Built-in |
 
----
 
 ## Contributing
 
 Pull requests welcome at [github.com/vahapogut/free-antigravity-cli](https://github.com/vahapogut/free-antigravity-cli).
 
----
 
 ## License
 
 Apache License 2.0 - see [LICENSE](LICENSE).
 
----
 
 ## Author
 
