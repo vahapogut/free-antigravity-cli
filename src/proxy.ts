@@ -471,9 +471,11 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
             }
             const customModels = loadCustomModels();
             const mappedCustom: Record<string, unknown> = {};
-            customModels.forEach((m) => { mappedCustom[toSlug(m)] = { displayName: m.displayName, maxTokens: 1048576, maxOutputTokens: 4096, model: generateModelPlaceholderId(m), apiProvider: 'API_PROVIDER_GOOGLE_GEMINI', modelProvider: 'MODEL_PROVIDER_GOOGLE' }; });
+            const slugs: string[] = [];
+            customModels.forEach((m) => { const slug = toSlug(m); slugs.push(slug); mappedCustom[slug] = { displayName: m.displayName, maxTokens: 1048576, maxOutputTokens: 4096, model: generateModelPlaceholderId(m), apiProvider: 'API_PROVIDER_GOOGLE_GEMINI', modelProvider: 'MODEL_PROVIDER_GOOGLE' }; });
+            const agentModelSorts = slugs.length > 0 ? [{ groups: [{ modelIds: slugs }] }] : [];
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ models: mappedCustom }));
+            res.end(JSON.stringify({ models: mappedCustom, agentModelSorts }));
           }
         });
       });
