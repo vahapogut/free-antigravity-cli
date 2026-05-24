@@ -71,43 +71,56 @@ function getVersion(): string {
   return '1.0.4';
 }
 
+function patchUrl(buf: Buffer, original: string, replacement: string): boolean {
+  const origBuf = Buffer.from(original);
+  const replBuf = Buffer.from(replacement);
+  const idx = buf.indexOf(origBuf);
+  if (idx === -1) return false;
+  if (replBuf.length !== origBuf.length) return false;
+  replBuf.copy(buf, idx);
+  return true;
+}
+
 function ensureAgyPatched(binPath: string): void {
   if (!fs.existsSync(binPath)) return;
   try {
     const buf = fs.readFileSync(binPath);
-    const original = Buffer.from('https://daily-cloudcode-pa.googleapis.com');
-    const newPatch = Buffer.from('http://localhost:50998/v1internal/xxxxxxx');
-    const oldPatch = Buffer.from('http://localhost:50999/v1internal/xxxxxxx');
-    const backup = Buffer.from('https://daily-cloudcode-pa.googleapis.com');
+    const targets = [
+      { orig: 'https://daily-cloudcode-pa.googleapis.com', repl: 'http://localhost:50998/v1internal/xxxxxxx' },
+      { orig: 'https://cloudcode-pa.googleapis.com',         repl: 'http://localhost:50998/v1internal/x' },
+    ];
 
-    // Already up to date
-    if (buf.includes(newPatch)) return;
+    // Check if already fully patched
+    if (targets.every((t) => buf.includes(Buffer.from(t.repl)))) return;
 
-    let patched = false;
-
-    // Upgrade old patch (50999 → 50998)
-    const oldIdx = buf.indexOf(oldPatch);
-    if (oldIdx !== -1) {
-      backupFile(binPath);
-      newPatch.copy(buf, oldIdx);
-      patched = true;
-      console.log('[ok] agy binary patch upgraded (50999 → 50998).');
-    }
-
-    // Fresh patch (original Google URL → 50998)
-    if (!patched) {
-      const origIdx = buf.indexOf(original);
-      if (origIdx !== -1) {
+    // Check for old patches to upgrade
+    const oldPatches = [
+      { old: 'http://localhost:50999/v1internal/xxxxxxx', newP: 'http://localhost:50998/v1internal/xxxxxxx' },
+    ];
+    let upgraded = false;
+    for (const op of oldPatches) {
+      const oldBuf = Buffer.from(op.old);
+      const newBuf = Buffer.from(op.newP);
+      const oi = buf.indexOf(oldBuf);
+      if (oi !== -1 && newBuf.length === oldBuf.length) {
         backupFile(binPath);
-        newPatch.copy(buf, origIdx);
-        patched = true;
-        console.log('[ok] agy binary patched for custom model support.');
+        newBuf.copy(buf, oi);
+        upgraded = true;
       }
     }
+    if (upgraded) console.log('[ok] agy binary patch upgraded (50999 → 50998).');
 
-    if (patched) {
+    // Apply fresh patches
+    let patched = false;
+    for (const t of targets) {
+      if (buf.includes(Buffer.from(t.repl))) continue;
+      if (patchUrl(buf, t.orig, t.repl)) patched = true;
+    }
+
+    if (patched || upgraded) {
+      if (!upgraded) backupFile(binPath);
       fs.writeFileSync(binPath, buf);
-      // macOS adjustments
+      if (!upgraded) console.log('[ok] agy binary patched for custom model support.');
       if (os.platform() === 'darwin') {
         try {
           execSync(`codesign --force --sign - "${binPath}"`, { stdio: 'ignore' });

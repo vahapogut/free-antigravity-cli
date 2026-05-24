@@ -353,7 +353,7 @@ function handleCustomModelRequest(
 
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
   // Strip binary patch padding
-  req.url = req.url!.replace(/\/v1internal\/x{7}/, '');
+  req.url = req.url!.replace(/\/v1internal\/x+/, '');
 
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
