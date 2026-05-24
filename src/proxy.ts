@@ -443,7 +443,12 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(googleJson));
           } catch (err) {
-            log.error('[Proxy] fetchAvailableModels failed, returning custom only:', err);
+            // Google may return binary/protobuf on auth errors. Log cleanly.
+            if (googleRes.statusCode && googleRes.statusCode >= 400) {
+              log.info(`[Proxy] fetchAvailableModels: Google returned ${googleRes.statusCode}, using custom models only`);
+            } else {
+              log.info('[Proxy] fetchAvailableModels: response parse failed, using custom models only');
+            }
             const customModels = loadCustomModels();
             const mappedCustom: Record<string, unknown> = {};
             customModels.forEach((m) => { mappedCustom[toSlug(m)] = { displayName: m.displayName, maxTokens: 1048576, maxOutputTokens: 4096, model: generateModelPlaceholderId(m), apiProvider: 'API_PROVIDER_GOOGLE_GEMINI', modelProvider: 'MODEL_PROVIDER_GOOGLE' }; });
