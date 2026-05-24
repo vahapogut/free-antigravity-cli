@@ -59,7 +59,8 @@ antigravity
 ## Prerequisites
 
 * **Node.js** >= 18
-* **Official Antigravity CLI** (`agy`) installed at one of the default locations:
+* **Official Antigravity CLI** (`agy`) installed at one of the default locations
+* **Google Account Sign-In**: The CLI uses the desktop Antigravity app's authentication. You must be signed in to [Antigravity Desktop](https://antigravity.google) first. The CLI does not have its own login flow.
   * **Windows**: `%LOCALAPPDATA%\agy\bin\agy.exe`
   * **macOS**: `~/Library/Application Support/agy/bin/agy` or `~/.local/share/agy/bin/agy`
   * **Linux**: `~/.local/share/agy/bin/agy`
@@ -214,6 +215,34 @@ A comprehensive unit and integration test suite is provided using Jest to verify
 npm test
 ```
 
+
+## Troubleshooting
+
+**"You are currently not signed in" / "No models available"**
+
+The CLI does not have its own login flow. You must sign in via the desktop Antigravity app first:
+
+1. Open **Antigravity Desktop** (installed separately)
+2. Sign in with your Google account
+3. Close and reopen the CLI: `antigravity`
+
+**"Port 50998 is already in use"**
+
+A previous CLI session may still be running. Kill stale processes:
+
+```bash
+# Windows
+taskkill //F //IM agy.exe
+
+# macOS/Linux
+pkill agy
+```
+
+**Custom models not appearing in agy**
+
+1. Verify models are added: `antigravity models list`
+2. Ensure API keys are valid (desktop-imported keys may need re-entry)
+3. Restart the CLI after adding models
 
 ## Comparison
 
