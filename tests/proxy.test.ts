@@ -8,7 +8,7 @@ jest.mock('fs', () => {
   return {
     ...originalFs,
     existsSync: jest.fn((p) => {
-      if (typeof p === 'string' && p.endsWith('models.json')) return true;
+      if (typeof p === 'string' && (p.endsWith('models.json') || p.includes('.free-antigravity'))) return true;
       return originalFs.existsSync(p);
     }),
     readFileSync: jest.fn((p, encoding) => {
@@ -19,7 +19,8 @@ jest.mock('fs', () => {
               name: 'models/custom-test-model',
               displayName: 'Custom Test Model',
               provider: 'openai',
-              apiKey: 'test-key',
+              apiKey: 'enc:dGVzdC1rZXk=', // already encrypted format to bypass migration
+              encrypted: true,
               apiUrl: 'https://api.openai.com/v1/chat/completions',
               externalModelName: 'gpt-4o'
             }
@@ -27,6 +28,14 @@ jest.mock('fs', () => {
         });
       }
       return originalFs.readFileSync(p, encoding);
+    }),
+    writeFileSync: jest.fn((p, data, encoding) => {
+      if (typeof p === 'string' && p.endsWith('models.json')) return;
+      return originalFs.writeFileSync(p, data, encoding);
+    }),
+    mkdirSync: jest.fn((p, options) => {
+      if (typeof p === 'string' && p.includes('.free-antigravity')) return;
+      return originalFs.mkdirSync(p, options);
     })
   };
 });
