@@ -542,7 +542,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
 // --- Server Start/Stop ---
 
-export function startProxy(port = 50999): Promise<number> {
+export function startProxy(port = 50998): Promise<number> {
   return new Promise((resolve, reject) => {
     server = http.createServer(handleRequest);
     server.listen(port, '127.0.0.1', () => {

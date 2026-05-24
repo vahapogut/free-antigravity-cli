@@ -31,7 +31,7 @@ Use **OpenAI, Anthropic, Ollama, OpenRouter, Google AI Studio, and any OpenAI-co
 
 ```
 antigravity
-  ├── Starts local proxy (port 50999)
+  ├── Starts local proxy (port 50998)
   ├── Auto-patches agy.exe to route through proxy
   └── Delegates to agy CLI
         ├── Google models → daily-cloudcode-pa.googleapis.com (transparent)
@@ -183,7 +183,7 @@ On first run, the CLI automatically patches `agy` to replace the hardcoded Googl
 
 ```
 https://daily-cloudcode-pa.googleapis.com
-→ http://localhost:50999/v1internal/xxxxxxx
+→ http://localhost:50998/v1internal/xxxxxxx
 ```
 
 This forces `agy` to route its `fetchAvailableModels` calls through the local proxy, where custom model definitions are injected.
@@ -195,7 +195,7 @@ On macOS, patching the binary invalidates its code signature. The CLI automatica
 
 ### Proxy Server
 
-The proxy runs on `http://127.0.0.1:50999` and:
+The proxy runs on `http://127.0.0.1:50998` and:
 
 1. **Intercepts `fetchAvailableModels`**: Merges custom model definitions into the response
 2. **Intercepts `generateContent`/`streamGenerateContent`**: Routes custom model requests to external APIs

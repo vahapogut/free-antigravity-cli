@@ -57,7 +57,7 @@ function getAgyBin(): string {
 
 async function ensureProxy(): Promise<number> {
   try { return await startProxy(); }
-  catch { return getProxyPort() || 50999; }
+  catch { return getProxyPort() || 50998; }
 }
 
 function getVersion(): string {
@@ -76,7 +76,7 @@ function ensureAgyPatched(binPath: string): void {
   try {
     const buf = fs.readFileSync(binPath);
     const original = Buffer.from('https://daily-cloudcode-pa.googleapis.com');
-    const replacement = Buffer.from('http://localhost:50999/v1internal/xxxxxxx');
+    const replacement = Buffer.from('http://localhost:50998/v1internal/xxxxxxx');
     if (buf.includes(replacement)) return;
     const idx = buf.indexOf(original);
     if (idx === -1) return;
