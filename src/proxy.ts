@@ -534,7 +534,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
           const customModels = loadCustomModels();
           const matched = customModels.find((m) => {
             const enumName = generateModelPlaceholderId(m);
-            return m.name === modelName || toSlug(m) === modelName || enumName === modelName || enumName === (reqJson.modelId || reqJson.model_id);
+            return m.name === modelName || toSlug(m) === modelName || m.displayName === modelName || enumName === modelName || enumName === (reqJson.modelId || reqJson.model_id);
           });
           if (matched) {
             log.info(`[Proxy] Custom model match: ${modelName} → ${matched.displayName}`);
@@ -554,7 +554,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       const customModels = loadCustomModels();
       const matched = customModels.find((m) => {
         const enumName = generateModelPlaceholderId(m);
-        return m.name === matchedModelName || toSlug(m) === matchedModelName || enumName === matchedModelName || 'models/' + enumName === matchedModelName;
+        return m.name === matchedModelName || toSlug(m) === matchedModelName || m.displayName === matchedModelName || enumName === matchedModelName || 'models/' + enumName === matchedModelName;
       });
       if (matched) {
         try {
