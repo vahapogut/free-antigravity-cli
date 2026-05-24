@@ -443,7 +443,9 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
             // Inject custom model slugs into agentModelSorts so they appear in the model selector
             const customSlugs = customModels.map((m) => m._slug).filter(Boolean) as string[];
             if (customSlugs.length > 0) {
-              if (googleJson.agentModelSorts && Array.isArray(googleJson.agentModelSorts)) {
+              if (!googleJson.agentModelSorts || !Array.isArray(googleJson.agentModelSorts)) {
+                googleJson.agentModelSorts = [{ groups: [{ modelIds: customSlugs }] }];
+              } else {
                 (googleJson.agentModelSorts as { groups?: { modelIds?: string[] }[] }[]).forEach((sort) => {
                   if (sort.groups && Array.isArray(sort.groups)) {
                     sort.groups.forEach((group) => {
