@@ -208,12 +208,32 @@ async function main(): Promise<void> {
     if (sub === 'add') {
       console.log('\n  Add Custom AI Model\n' + '─'.repeat(40));
       const answers = await inquirer.prompt([
-        { type: 'list', name: 'provider', message: 'Provider:', choices: ['openai', 'anthropic', 'google', 'ollama', 'openrouter', 'custom'] },
+        { type: 'list', name: 'provider', message: 'Provider:', choices: [
+          'openai', 'anthropic', 'google', 'ollama', 'openrouter', 'custom',
+          'deepseek', 'groq', 'mistral', 'cerebras', 'kimi', 'fireworks',
+          'lmstudio', 'llamacpp', 'nvidia'
+        ] },
         { type: 'input', name: 'modelId', message: 'Model ID (e.g. gpt-4o):', validate: (v: string) => v.length > 0 },
         { type: 'input', name: 'displayName', message: 'Display name:' },
         { type: 'password', name: 'apiKey', message: 'API Key:', mask: '*' },
         { type: 'input', name: 'apiUrl', message: 'API URL:', default: (a: any) => {
-          const d: Record<string, string> = { openai: 'https://api.openai.com/v1/chat/completions', anthropic: 'https://api.anthropic.com/v1/messages', ollama: 'http://localhost:11434/v1/chat/completions', openrouter: 'https://openrouter.ai/api/v1/chat/completions', custom: 'https://api.together.xyz/v1', google: `https://generativelanguage.googleapis.com/v1beta/models/${a.modelId}:generateContent` };
+          const d: Record<string, string> = {
+            openai: 'https://api.openai.com/v1/chat/completions',
+            anthropic: 'https://api.anthropic.com/v1/messages',
+            google: `https://generativelanguage.googleapis.com/v1beta/models/${a.modelId}:generateContent`,
+            ollama: 'http://localhost:11434/v1/chat/completions',
+            openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+            custom: 'https://api.together.xyz/v1',
+            deepseek: 'https://api.deepseek.com/anthropic',
+            groq: 'https://api.groq.com/openai/v1',
+            mistral: 'https://api.mistral.ai/v1',
+            cerebras: 'https://api.cerebras.ai/v1',
+            kimi: 'https://api.moonshot.ai/anthropic/v1',
+            fireworks: 'https://api.fireworks.ai/inference/v1',
+            lmstudio: 'http://localhost:1234/v1',
+            llamacpp: 'http://localhost:8080/v1',
+            nvidia: 'https://integrate.api.nvidia.com/v1',
+          };
           return d[a.provider] || '';
         }},
       ]);
