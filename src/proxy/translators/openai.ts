@@ -319,12 +319,17 @@ export function mapGeminiToOpenAI(geminiBody: GeminiRequestBody, modelName: stri
     }
   }
 
-  // OpenAI reasoning/o-series and gpt-4.1 models require max_completion_tokens
-  // and don't support temperature
+  // Models requiring max_completion_tokens instead of max_tokens:
+  // - Legacy o-series: o1, o3, o4-mini
+  // - Legacy gpt-4.1 series: gpt-4.1, gpt-4.1-mini, gpt-4.1-nano
+  // - GPT-5.x thinking models: gpt-5.4-thinking, gpt-5.5-pro etc.
+  //   (OpenAI unified under GPT-5.x in Feb 2026, deprecated all previous models)
+  const isThinkingModel = /thinking|reasoning/i.test(modelName);
   const isReasoningModel = /(^|\/)(o1|o3|o4)(-|$)/i.test(modelName);
   const is41Model = /(^|\/)(gpt-4\.1)/i.test(modelName);
-  const needsCompletionTokens = isReasoningModel || is41Model;
-  const needsNoTemperature = isReasoningModel;
+  const is5Pro = /(^|\/)(gpt-5\.5-pro)/i.test(modelName);
+  const needsCompletionTokens = isThinkingModel || isReasoningModel || is41Model || is5Pro;
+  const needsNoTemperature = isThinkingModel || isReasoningModel;
 
   const maxTokens = geminiBody.generationConfig?.maxOutputTokens ?? 4000;
   const payload: OpenAIRequestBody = {
