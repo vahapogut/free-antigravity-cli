@@ -29,8 +29,12 @@ Use **OpenAI, Anthropic, Ollama, OpenRouter, Google AI Studio, and any OpenAI-co
 * [Development](#development)
 * [Testing](#testing)
 * [Troubleshooting](#troubleshooting)
+* [FAQ](#faq)
+* [Changelog](#changelog)
+* [Security](#security)
 * [Comparison](#comparison)
 * [Contributing](#contributing)
+* [Acknowledgments](#acknowledgments)
 * [License](#license)
 
 
@@ -354,7 +358,97 @@ npm install -g free-antigravity-cli@latest
 2. Ensure API keys are valid (desktop-imported keys may need re-entry)
 3. Restart the CLI after adding models
 
-## Comparison
+
+## FAQ
+
+**Q: Is a Google account required?**
+
+Yes. The CLI does not have its own login flow. You must sign in to the desktop Antigravity app first with a Google account. The CLI reuses that authentication.
+
+**Q: Are my API keys safe?**
+
+API keys are stored in `~/.free-antigravity/models.json` and encrypted with AES-256-CBC using a machine-specific key derived from your username. They are never sent to Google or any third party except the provider you configured (e.g. OpenAI, Anthropic).
+
+**Q: Will this break when Google updates `agy`?**
+
+Starting with v1.1.0, the CLI includes **update-resilient patching**: runtime URL discovery, flexible null-byte padding, versioned backups, and automatic rollback. Most updates are handled automatically. See [Update Resilience](#update-resilience) for details.
+
+**Q: Can I use this without installing the official Antigravity CLI?**
+
+No. This tool wraps the official `agy` CLI, which must be installed separately. The CLI patches `agy` at runtime to inject custom models.
+
+**Q: Why are my desktop-imported API keys not working?**
+
+Desktop Antigravity encrypts API keys with Electron's `safeStorage`, which the CLI cannot decrypt. After importing, re-enter your API keys via `antigravity models add`.
+
+**Q: Can I run the proxy on a different port?**
+
+The proxy uses port **50998** by default. If that port is busy, it automatically falls back to a dynamic port. You do not need to configure this manually.
+
+**Q: Does this work on macOS with Gatekeeper?**
+
+Yes. On macOS, the CLI automatically re-signs the patched binary with `codesign --force --sign -` and clears quarantine flags with `xattr`. If you still see a security warning, you may need to allow it in **System Settings → Privacy & Security**.
+
+**Q: How do I completely uninstall?**
+
+```bash
+# Uninstall the CLI
+npm uninstall -g free-antigravity-cli
+
+# Remove configuration
+rm -rf ~/.free-antigravity
+
+# Restore original agy binary from backup
+# (see Troubleshooting → "Patch failed" for restore commands)
+```
+
+
+## Changelog
+
+### v1.1.0 (2025-05-25)
+
+- **feat**: Update-resilient binary patching system
+  - Flexible `patchUrlFlexible()` with null-byte padding for variable-length URLs
+  - Runtime `discoverGoogleUrls()` to find and patch new Google endpoints automatically
+  - Versioned backups (`agy.exe.bak-<version>-<timestamp>`) for traceable rollback
+  - Automatic rollback on patch failure via `rollback.ts`
+- **feat**: Remote patch manifest loader (`manifest.ts`) with offline cache fallback
+- **feat**: Agy version compatibility check on startup
+- **test**: 9 new compatibility tests (`tests/compat.test.ts`)
+- **docs**: Updated README with Update Resilience section, troubleshooting, and demo screenshot
+
+### v1.0.20
+
+- Initial stable release with support for 15+ providers
+- Binary patching, proxy interception, and format translation
+- Model management (add, remove, list, import from desktop)
+- Streaming and non-streaming custom model requests
+
+
+## Security
+
+### Reporting Vulnerabilities
+
+If you discover a security issue, please **do not open a public issue**. Instead, contact the maintainer directly at **vahap.ogut@outlook.com** or via [LinkedIn](https://www.linkedin.com/in/abdulvahap-ogut-343992398/).
+
+### How API Keys Are Protected
+
+| Layer | Protection |
+|---|---|
+| **Storage** | `~/.free-antigravity/models.json` (user home, not world-readable) |
+| **Encryption** | AES-256-CBC with machine-specific key derived from `process.env.USERNAME` |
+| **Transport** | Sent only to the provider you configured (OpenAI, Anthropic, etc.) via HTTPS |
+| **Memory** | Decrypted only when needed; not logged or persisted in plain text |
+
+### macOS Code Signing
+
+Patching the `agy` binary invalidates its original code signature. The CLI automatically:
+1. Backs up the original binary
+2. Applies the patch
+3. Re-signs with `codesign --force --sign -`
+4. Clears quarantine with `xattr -d com.apple.quarantine`
+
+If you prefer not to patch, you can manually configure a system-wide proxy instead (advanced).
 
 | Feature | Free Antigravity CLI | Google agy CLI |
 |---|---|---|
@@ -372,6 +466,13 @@ npm install -g free-antigravity-cli@latest
 ## Contributing
 
 Pull requests welcome at [github.com/vahapogut/free-antigravity-cli](https://github.com/vahapogut/free-antigravity-cli).
+
+
+## Acknowledgments
+
+- Thanks to the **Antigravity** team for building the `agy` CLI that this project wraps.
+- Thanks to all **contributors** who reported issues, tested patches, and submitted PRs.
+- Special thanks to the **open-source AI community** for making multi-provider access possible.
 
 
 ## License
