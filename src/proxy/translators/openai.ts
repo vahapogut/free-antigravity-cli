@@ -2,6 +2,7 @@
  * OpenAI/Ollama provider translator.
  * Handles Gemini ↔ OpenAI/Ollama request/response mapping and streaming chunks.
  */
+import * as path from 'path';
 
 import { log } from '../../logger';
 import {
@@ -58,6 +59,8 @@ interface GeminiPart {
   thought?: boolean;
   functionCall?: GeminiFunctionCall;
   functionResponse?: GeminiFunctionResponse;
+  fileData?: { mimeType: string; fileUri: string };
+  inlineData?: { mimeType: string; data: string };
 }
 
 interface GeminiFunctionCall {
@@ -264,7 +267,36 @@ export function mapGeminiToOpenAI(geminiBody: GeminiRequestBody, modelName: stri
             content = regularParts.map((p) => p.text || '').join('');
             reasoning_content = thoughtParts.map((p) => p.text || '').join('');
           } else {
-            content = (item.parts || []).map((p) => p.text || '').join('');
+            const parts = item.parts || [];
+            const partsContent: string[] = [];
+            for (const p of parts) {
+              if (p.text) {
+                partsContent.push(p.text);
+              } else if (p.fileData) {
+                const fd = p.fileData as { mimeType: string; fileUri: string };
+                // Try to read local files directly
+                try {
+                  const url = new URL(fd.fileUri);
+                  if (url.protocol === 'file:') {
+                    const fs = require('fs');
+                    const fileContent = fs.readFileSync(url.pathname.replace(/^\//, '').replace(/\//g, path.sep), 'utf-8');
+                    partsContent.push(`[File content from ${fd.fileUri}]:\n${fileContent}`);
+                  } else {
+                    partsContent.push(`[File reference: ${fd.fileUri} (${fd.mimeType})]`);
+                  }
+                } catch {
+                  partsContent.push(`[File reference: ${fd.fileUri} (${fd.mimeType})]`);
+                }
+              } else if (p.inlineData) {
+                const id = p.inlineData as { mimeType: string; data: string };
+                if (id.mimeType && id.mimeType.startsWith('image/')) {
+                  partsContent.push(`[Image: data:${id.mimeType};base64,${id.data}]`);
+                } else {
+                  partsContent.push(`[Inline data: ${id.mimeType}, length: ${(id.data || '').length} chars]`);
+                }
+              }
+            }
+            content = partsContent.join('\n');
           }
           const msg: OpenAIMessage = { role, content };
           if (reasoning_content) msg.reasoning_content = reasoning_content;
