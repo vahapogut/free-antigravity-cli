@@ -100,6 +100,15 @@ Any arguments not listed above are passed directly to `agy` CLI.
 | **Google AI Studio** | `google` | API Key (`AIza...`) |
 | **Ollama (Local)** | `ollama` | None |
 | **OpenRouter** | `openrouter` | API Key |
+| **DeepSeek** | `deepseek` | API Key |
+| **Groq** | `groq` | API Key |
+| **Mistral** | `mistral` | API Key |
+| **Cerebras** | `cerebras` | API Key |
+| **Kimi (Moonshot)** | `kimi` | API Key |
+| **Fireworks AI** | `fireworks` | API Key |
+| **LM Studio (Local)** | `lmstudio` | None |
+| **llama.cpp (Local)** | `llamacpp` | None |
+| **NVIDIA NIM** | `nvidia` | API Key |
 | **Custom (OpenAI-compatible)** | `custom` | API Key |
 
 
