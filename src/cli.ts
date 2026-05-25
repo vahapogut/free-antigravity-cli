@@ -11,6 +11,7 @@ import inquirer from 'inquirer';
 import { addModel, removeModel, listModels, ensureConfigDir, saveModels, CustomModelEntry } from './config';
 import { startProxy, getProxyPort, stopProxy } from './proxy';
 import { backupFile, decryptString } from './crypto';
+import { checkAgyCompatibility } from './manifest';
 
 function searchInPath(): string | null {
   try {
@@ -85,36 +86,70 @@ function getVersion(): string {
   return '1.0.4';
 }
 
-function patchUrl(buf: Buffer, original: string, replacement: string): boolean {
+function patchUrlFlexible(buf: Buffer, original: string, replacement: string): boolean {
   const origBuf = Buffer.from(original);
-  const replBuf = Buffer.from(replacement);
   const idx = buf.indexOf(origBuf);
   if (idx === -1) return false;
-  if (replBuf.length !== origBuf.length) {
-    if (process.env.ANTIGRAVITY_DEBUG === 'true') {
-      console.warn(`[Warn] URL length mismatch: cannot patch "${original}" (len=${original.length}) → "${replacement}" (len=${replacement.length})`);
-    }
-    return false;
-  }
-  replBuf.copy(buf, idx);
+
+  const replBuf = Buffer.from(replacement);
+  const paddedRepl = Buffer.alloc(origBuf.length);
+  replBuf.copy(paddedRepl);
+  // Pad remaining bytes with null (safe inside binary strings)
+  for (let i = replBuf.length; i < paddedRepl.length; i++) paddedRepl[i] = 0;
+
+  paddedRepl.copy(buf, idx);
   return true;
+}
+
+function discoverGoogleUrls(buf: Buffer): string[] {
+  const found = new Set<string>();
+  const str = buf.toString('ascii');
+  const urlPattern = /https:\/\/[a-z0-9-]+\.googleapis\.com/g;
+  let match: RegExpExecArray | null;
+  while ((match = urlPattern.exec(str)) !== null) {
+    found.add(match[0]);
+  }
+  return Array.from(found);
+}
+
+function getAgyVersion(binPath: string): string | null {
+  try {
+    const out = execSync(`"${binPath}" --version`, { stdio: 'pipe', timeout: 5000 }).toString().trim();
+    const m = out.match(/(\d+\.\d+\.?\d*)/);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
 }
 
 function ensureAgyPatched(binPath: string): void {
   if (!fs.existsSync(binPath)) return;
   try {
+    const version = getAgyVersion(binPath);
     const buf = fs.readFileSync(binPath);
-    const targets = [
-      { orig: 'https://daily-cloudcode-pa.googleapis.com', repl: 'http://localhost:50998/v1internal/xxxxxxx' },
-      { orig: 'https://cloudcode-pa.googleapis.com',         repl: 'http://localhost:50998/v1internal/x' },
+    const port = getProxyPort() || 50998;
+    const replBase = `http://localhost:${port}/v1internal/`;
+
+    // Known targets for backwards compatibility
+    const knownTargets = [
+      { orig: 'https://daily-cloudcode-pa.googleapis.com', repl: replBase + 'xxxxxxx' },
+      { orig: 'https://cloudcode-pa.googleapis.com',         repl: replBase + 'x' },
     ];
 
-    // Check if already fully patched
-    if (targets.every((t) => buf.includes(Buffer.from(t.repl)))) return;
+    // Discover additional Google URLs dynamically from the binary
+    const discovered = discoverGoogleUrls(buf);
+    const dynamicTargets = discovered
+      .filter((url) => !knownTargets.some((k) => k.orig === url))
+      .map((url) => ({ orig: url, repl: replBase + 'x' }));
 
-    // Check for old patches to upgrade
+    const allTargets = [...knownTargets, ...dynamicTargets];
+
+    // Check if already fully patched
+    if (allTargets.every((t) => buf.includes(Buffer.from(t.repl)))) return;
+
+    // Check for old patches to upgrade (50999 → current port)
     const oldPatches = [
-      { old: 'http://localhost:50999/v1internal/xxxxxxx', newP: 'http://localhost:50998/v1internal/xxxxxxx' },
+      { old: 'http://localhost:50999/v1internal/xxxxxxx', newP: replBase + 'xxxxxxx' },
     ];
     let upgraded = false;
     for (const op of oldPatches) {
@@ -122,22 +157,22 @@ function ensureAgyPatched(binPath: string): void {
       const newBuf = Buffer.from(op.newP);
       const oi = buf.indexOf(oldBuf);
       if (oi !== -1 && newBuf.length === oldBuf.length) {
-        backupFile(binPath);
+        backupFile(binPath, version || undefined);
         newBuf.copy(buf, oi);
         upgraded = true;
       }
     }
-    if (upgraded) console.log('[ok] agy binary patch upgraded (50999 → 50998).');
+    if (upgraded) console.log('[ok] agy binary patch upgraded (50999 → current port).');
 
-    // Apply fresh patches
+    // Apply fresh patches (flexible, handles length mismatches via padding)
     let patched = false;
-    for (const t of targets) {
+    for (const t of allTargets) {
       if (buf.includes(Buffer.from(t.repl))) continue;
-      if (patchUrl(buf, t.orig, t.repl)) patched = true;
+      if (patchUrlFlexible(buf, t.orig, t.repl)) patched = true;
     }
 
     if (patched || upgraded) {
-      if (!upgraded) backupFile(binPath);
+      if (!upgraded) backupFile(binPath, version || undefined);
       fs.writeFileSync(binPath, buf);
       if (!upgraded) console.log('[ok] agy binary patched for custom model support.');
       if (os.platform() === 'darwin') {
@@ -165,6 +200,11 @@ async function startAndDelegate(agyArgs: string[]): Promise<void> {
     console.error('If installed in a custom location, set the AGY_BIN environment variable:');
     console.error('  export AGY_BIN=/path/to/agy\n');
     process.exit(1);
+  }
+
+  const version = getAgyVersion(agyBin);
+  if (version) {
+    await checkAgyCompatibility(version);
   }
 
   ensureAgyPatched(agyBin);

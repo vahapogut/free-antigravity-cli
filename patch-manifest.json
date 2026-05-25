@@ -1,0 +1,21 @@
+{
+  "$schema": "./patch-manifest.schema.json",
+  "lastUpdated": "2025-05-25T00:00:00Z",
+  "latestKnownAgyVersion": "1.0.0",
+  "strategies": [
+    {
+      "agyVersionRange": ">=1.0.0",
+      "urls": [
+        {
+          "orig": "https://daily-cloudcode-pa.googleapis.com",
+          "repl": "http://localhost:{{PORT}}/v1internal/xxxxxxx"
+        },
+        {
+          "orig": "https://cloudcode-pa.googleapis.com",
+          "repl": "http://localhost:{{PORT}}/v1internal/x"
+        }
+      ],
+      "notes": "Default targets for agy >= 1.0.0. Dynamic URL discovery will catch additional Google endpoints."
+    }
+  ]
+}

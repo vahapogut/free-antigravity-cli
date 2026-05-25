@@ -43,7 +43,12 @@ export function decryptString(encryptedText: string): string {
 }
 
 export function isEncryptionAvailable(): boolean { return true; }
-export function backupFile(filePath: string): void {
+export function backupFile(filePath: string, version?: string): string {
   const fs = require('fs');
-  if (fs.existsSync(filePath)) fs.copyFileSync(filePath, filePath + '.bak');
+  if (!fs.existsSync(filePath)) return '';
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const ver = version || 'unknown';
+  const backupPath = `${filePath}.bak-${ver}-${timestamp}`;
+  fs.copyFileSync(filePath, backupPath);
+  return backupPath;
 }

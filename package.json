@@ -1,6 +1,6 @@
 {
   "name": "free-antigravity-cli",
-  "version": "1.0.20",
+  "version": "1.1.0",
   "description": "Open-source community CLI for Antigravity - supports custom AI models (OpenAI, Anthropic, Ollama, OpenRouter, Google AI Studio) alongside Gemini",
   "homepage": "https://github.com/vahapogut/free-antigravity-cli",
   "author": {
