@@ -8,6 +8,12 @@
 
 Use **OpenAI, Anthropic, Ollama, OpenRouter, Google AI Studio, and any OpenAI-compatible provider** alongside Gemini models — all through the native `agy` CLI experience.
 
+<p align="center">
+  <img src="free-antigravity-image.png" alt="Free Antigravity CLI Demo" width="800"/>
+</p>
+
+<p align="center"><i>Use OpenAI, Claude, Llama and more inside the native agy CLI</i></p>
+
 
 ## Quick Links
 
