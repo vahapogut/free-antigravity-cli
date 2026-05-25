@@ -19,8 +19,10 @@ Use **OpenAI, Anthropic, Ollama, OpenRouter, Google AI Studio, and any OpenAI-co
 * [Installation](#installation)
 * [Configuration](#configuration)
 * [Technical Details](#technical-details)
+* [Update Resilience](#update-resilience)
 * [Development](#development)
 * [Testing](#testing)
+* [Troubleshooting](#troubleshooting)
 * [Comparison](#comparison)
 * [Contributing](#contributing)
 * [License](#license)
@@ -181,7 +183,12 @@ antigravity models import
 
 ### Binary Patching
 
-On first run, the CLI automatically patches `agy` to replace hardcoded Google API URLs with the local proxy:
+On first run, the CLI automatically patches `agy` to replace hardcoded Google API URLs with the local proxy. Starting with **v1.1.0**, the patching system is **update-resilient**:
+
+* **Flexible Patching**: Uses null-byte padding to handle URL replacements of different lengths, so even if Google changes endpoint strings, the patch adapts automatically.
+* **Runtime URL Discovery**: Scans the `agy` binary at startup for any `*.googleapis.com` URLs and patches them dynamically — no hardcoded list required.
+* **Versioned Backups**: Original binaries are backed up with the agy version and timestamp (e.g. `agy.exe.bak-1.2.3-2026-05-25T00-30-28-323Z`) for easy rollback.
+* **Automatic Rollback**: If the proxy health check fails after patching, the CLI automatically restores the most recent working backup.
 
 ```
 https://daily-cloudcode-pa.googleapis.com  → http://localhost:50998/v1internal/xxxxxxx
@@ -190,7 +197,7 @@ https://cloudcode-pa.googleapis.com        → http://localhost:50998/v1internal
 
 This forces `agy` to route ALL API calls (`fetchAvailableModels`, `loadCodeAssist`, etc.) through the local proxy, where custom model definitions are injected into both the `models` list and `agentModelSorts` (required for models to appear in the agy model selector).
 
-The original binary is backed up at `agy.exe.bak` (or `agy.bak` on macOS/Linux). Old patches (from previous versions using port 50999) are automatically upgraded.
+Old patches (from previous versions using port 50999) are automatically upgraded.
 
 **Port Isolation:** The CLI proxy uses port **50998** by default, separate from the desktop Antigravity proxy on port 50999. Both can run simultaneously without conflict. If port 50998 is busy, the proxy falls back to a dynamic port automatically.
 
@@ -218,6 +225,36 @@ The proxy runs on `http://127.0.0.1:50998` (with automatic fallback if busy) and
 | **Google AI Studio** | Passthrough (native Gemini) | Passthrough | SSE chunks |
 | **OpenRouter** | Same as OpenAI | Same as OpenAI | Same as OpenAI |
 | **Custom** | Same as OpenAI | Same as OpenAI | Same as OpenAI |
+
+
+## Update Resilience
+
+Free Antigravity CLI v1.1.0+ includes several mechanisms to stay compatible when Google updates the `agy` binary:
+
+| Feature | Description |
+|---|---|
+| **Runtime URL Discovery** | Automatically discovers all `*.googleapis.com` URLs inside the `agy` binary and patches them, even if Google adds new endpoints. |
+| **Flexible Patching** | Patches URLs of different lengths using null-byte padding, so exact length matches are no longer required. |
+| **Versioned Backups** | Each patch creates a timestamped backup tagged with the agy version, making it easy to restore a specific version. |
+| **Auto-Rollback** | If patching fails or the proxy doesn't start, the CLI automatically restores the most recent working backup. |
+| **Remote Patch Manifest** | The CLI can load updated patch strategies from a remote manifest on GitHub, with offline fallback to a local cache and bundled defaults. |
+| **Version Compatibility Check** | On startup, warns if your `agy` version hasn't been tested with the current CLI version, so you know when to report issues. |
+
+### How It Works
+
+```
+agy binary updated by Google
+         ↓
+free-antigravity-cli starts
+         ↓
+├─ Runtime scan: discovers ALL *.googleapis.com URLs
+├─ Flexible patch: replaces them with localhost proxy
+├─ Proxy health check: verifies everything works
+├─ Fail? → Auto-rollback to latest versioned backup
+└─ Success → Custom models available in agy selector
+```
+
+> **Note:** If Google makes a radical change (e.g. removes all plaintext URLs or switches to a completely different architecture), binary patching may no longer be possible. In that case, please [open an issue](https://github.com/vahapogut/free-antigravity-cli/issues).
 
 
 ## Development
@@ -284,6 +321,27 @@ taskkill //F //IM agy.exe
 pkill agy
 ```
 
+**"Patch failed" / "Rolling back to backup"**
+
+This can happen when Google updates `agy` and the patch doesn't apply cleanly. The CLI automatically restores the most recent working backup. To manually restore:
+
+```bash
+# Find the latest backup
+ls ~/.local/share/agy/bin/agy.bak-*
+
+# Restore (macOS/Linux)
+cp ~/.local/share/agy/bin/agy.bak-<version>-<timestamp> ~/.local/share/agy/bin/agy
+
+# Restore (Windows — PowerShell)
+Copy-Item "$env:LOCALAPPDATA\agy\bin\agy.exe.bak-*" "$env:LOCALAPPDATA\agy\bin\agy.exe"
+```
+
+If the issue persists after a rollback, try updating `free-antigravity-cli`:
+
+```bash
+npm install -g free-antigravity-cli@latest
+```
+
 **Custom models not appearing in agy**
 
 1. Verify models are added: `antigravity models list`
@@ -302,6 +360,7 @@ pkill agy
 | **Size** | ~90 KB | 151 MB |
 | **npm Install** | Yes | No |
 | **Auto-updates** | Via npm | Built-in |
+| **Update Resilience** | Yes (v1.1.0+) | N/A |
 
 
 ## Contributing
