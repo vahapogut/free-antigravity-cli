@@ -49,6 +49,7 @@ let proxyPort = 0;
 import { modelToolCallIds, modelReasoningContent, activeStreamContexts, translatedToolCalls, stateTimestamps, touchStateTimestamp, startCleanupInterval } from './proxy/shared';
 import { detectModelCapabilities } from './proxy/modelUtils';
 import * as registry from './proxy/registry';
+import { applyAnthropicPromptCaching } from './proxy/translators/anthropic';
 import { decryptString, encryptString } from './crypto';
 import { validateCustomModel } from './schemaValidator';
 
@@ -192,6 +193,10 @@ function handleCustomModelRequest(
 
   if (isStream && registry.supportsStreaming(provider)) {
     (payload as Record<string, unknown>).stream = true;
+  }
+
+  if (provider === 'anthropic') {
+    applyAnthropicPromptCaching(payload as Parameters<typeof applyAnthropicPromptCaching>[0]);
   }
 
   let finalUrlStr = model.apiUrl;
