@@ -378,7 +378,7 @@ export function mapAnthropicChunkToGemini(chunk: AnthropicResponse, modelName: s
         finishReason: 'OTHER',
         index: 0,
       };
-    } else if (delta?.type === 'input_delta') {
+    } else if (delta?.type === 'input_json_delta' || delta?.type === 'input_delta') {
       if (context.toolCalls[idx]) {
         context.toolCalls[idx].arguments += delta.partial_json || '';
       }
