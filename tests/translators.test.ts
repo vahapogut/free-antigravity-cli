@@ -101,3 +101,16 @@ describe('Anthropic schema keywords', () => {
     expect(schema.properties.minLength).toEqual({ type: 'string', description: 'a property literally named minLength' });
   });
 });
+
+describe('Anthropic tool calls', () => {
+  test('mapAnthropicToGemini passes tool_use input through unchanged', () => {
+    const res = mapAnthropicToGemini({
+      id: 'msg_1',
+      content: [{ type: 'tool_use', id: 'toolu_1', name: 'read_file', input: { Path: '/tmp/a.txt' } }],
+      stop_reason: 'tool_use',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    } as any, 'models/test');
+    const call = res.candidates[0].content.parts[0].functionCall;
+    expect(call).toEqual({ name: 'read_file', args: { Path: '/tmp/a.txt' }, id: 'toolu_1' });
+  });
+});
