@@ -148,6 +148,31 @@ interface GeminiUsageMetadata {
 
 // ─── REQUEST: Gemini → Anthropic ──────────────────────────────────────────
 
+// Gemini proto schemas encode int64 keywords (minLength, minItems, ...) as strings; JSON Schema needs numbers.
+const NUMERIC_SCHEMA_KEYWORDS = new Set([
+  'minLength', 'maxLength', 'minItems', 'maxItems', 'minProperties', 'maxProperties',
+  'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf',
+]);
+
+export function fixNumericSchemaKeywords(node: unknown): void {
+  if (Array.isArray(node)) {
+    node.forEach(fixNumericSchemaKeywords);
+    return;
+  }
+  if (!node || typeof node !== 'object') return;
+  const obj = node as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (NUMERIC_SCHEMA_KEYWORDS.has(key) && typeof val === 'string' && val.trim() !== '' && !isNaN(Number(val))) {
+      obj[key] = Number(val);
+    } else if (key === 'properties' && val && typeof val === 'object') {
+      Object.values(val as Record<string, unknown>).forEach(fixNumericSchemaKeywords);
+    } else if (val && typeof val === 'object') {
+      fixNumericSchemaKeywords(val);
+    }
+  }
+}
+
 function mapGeminiToolsToAnthropic(geminiTools: GeminiTool[]): AnthropicTool[] {
   if (!geminiTools || !Array.isArray(geminiTools)) return [];
   const anthropicTools: AnthropicTool[] = [];
@@ -163,6 +188,7 @@ function mapGeminiToolsToAnthropic(geminiTools: GeminiTool[]): AnthropicTool[] {
         if (params.properties) {
           fixParamTypes(params.properties as Record<string, unknown>);
         }
+        fixNumericSchemaKeywords(params);
         anthropicTools.push({
           name: func.name,
           description: func.description || '',
