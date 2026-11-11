@@ -142,6 +142,25 @@ describe('Proxy Server Integration', () => {
       },
     );
 
+    // Without this a refused agy would look exactly like "custom models do not appear".
+    test('says in verbose mode which request it refused', async () => {
+      const lines: string[] = [];
+      const spy = jest.spyOn(console, 'log').mockImplementation((...args: unknown[]) => void lines.push(args.map(String).join(' ')));
+      const previous = process.env.ANTIGRAVITY_DEBUG;
+      process.env.ANTIGRAVITY_DEBUG = 'true';
+      try {
+        await request.get('/health').set('Host', 'attacker.example').set('Origin', 'https://attacker.example');
+      } finally {
+        if (previous === undefined) delete process.env.ANTIGRAVITY_DEBUG;
+        else process.env.ANTIGRAVITY_DEBUG = previous;
+        spy.mockRestore();
+      }
+      const refusal = lines.find((line) => /refused/i.test(line));
+      expect(refusal).toBeDefined();
+      expect(refusal).toContain('GET');
+      expect(refusal).toContain('attacker.example');
+    });
+
     test('never sends CORS headers, even to the local client', async () => {
       const res = await request.get('/health');
       expect(res.status).toBe(200);

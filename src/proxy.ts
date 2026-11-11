@@ -339,6 +339,8 @@ function handleCustomModelRequest(
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
   // Only the local agy CLI is served; no CORS headers are sent, so browsers get nothing.
   if (!isLocalClientRequest(req)) {
+    const shown = (value: string | undefined) => (value === undefined ? 'none' : JSON.stringify(value.slice(0, 100)));
+    log.info(`[Proxy] Refused ${req.method} request: Host ${shown(req.headers.host)}, Origin ${shown(req.headers.origin)}`);
     res.writeHead(403, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: { message: 'This proxy only serves the local agy CLI.' } }));
     return;
