@@ -94,6 +94,19 @@ describe('starting agy', () => {
     expect(seen).toEqual([['/path with spaces/agy', ['--version']]]);
   });
 
+  test('waits for the version no longer than it is told to', () => {
+    const limits: unknown[] = [];
+    const run = ((_file: string, _args: string[], options: { timeout?: number }) => {
+      limits.push(options.timeout);
+      return Buffer.from('1.4.12');
+    }) as unknown as Parameters<typeof readAgyVersion>[1];
+
+    readAgyVersion('/opt/agy/bin/agy', run);
+    readAgyVersion('/opt/agy/bin/agy', run, 30_000);
+
+    expect(limits).toEqual([5000, 30_000]);
+  });
+
   test('reports no version when the binary cannot be run', () => {
     const run = (() => {
       throw new Error('spawn failed');

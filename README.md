@@ -211,8 +211,8 @@ https://daily-cloudcode-pa.googleapis.com  → http://localhost:50998/v1internal
 ```
 
 * **One endpoint, same length**: The replacement is exactly as long as the original URL, so nothing else in the binary moves. Only this endpoint is redirected. If a build does not contain it, the production host (`https://cloudcode-pa.googleapis.com`) is redirected instead. Sign-in and all other Google URLs are never changed.
-* **Versioned Backups**: The original binary is saved first, with the agy version and a timestamp in its name (e.g. `agy.exe.bak-1.2.3-2026-05-25T00-30-28-323Z`).
-* **Check and undo**: After patching, the CLI checks that `agy --version` still answers. If it does not, the original is copied back and the problem is printed.
+* **One backup**: The original binary is saved first, with the agy version and a timestamp in its name (e.g. `agy.exe.bak-1.2.3-2026-05-25T00-30-28-323Z`). `agy` is about 150 MB, so only the original of the installed build is kept: when agy updates itself and is patched again, the previous backup is removed.
+* **Check and undo**: After patching, the CLI checks that `agy --version` still answers. It allows up to 30 seconds for this, because the first start of a rewritten file is slow. If there is no answer, the original is copied back and the problem is printed.
 * **Restore**: `antigravity restore` puts the newest unpatched backup back.
 
 `agy` then sends its Cloud Code requests (`fetchAvailableModels`, `streamGenerateContent`, etc.) through the local proxy, where custom model definitions are injected into both the `models` list and `agentModelSorts` (required for models to appear in the agy model selector).
@@ -258,7 +258,7 @@ The proxy runs on `http://127.0.0.1:50998` (with automatic fallback if busy) and
 | Feature | Description |
 |---|---|
 | **Same-length patch** | The Cloud Code endpoint is found in each new binary and replaced by a local URL of the same length. No offsets or version tables are involved. |
-| **Versioned Backups** | Each patch first saves the original, tagged with the agy version and a timestamp. |
+| **One backup** | Each patch first saves the original, tagged with the agy version and a timestamp, and removes the backup of the previous build. |
 | **Check and undo** | After patching, `agy --version` must still answer. If it does not, the original is copied back and the problem is printed. |
 | **Restore command** | `antigravity restore` puts the newest unpatched backup back. |
 | **Published manifest** | The last agy version reported to work is published in this repository (`patch-manifest.json`). The CLI reads it at most once a day, with a cached and a bundled copy as fallback. |
@@ -347,7 +347,9 @@ pkill agy
 
 **"Could not patch agy" / "The patched agy did not start"**
 
-This can happen when Google updates `agy` and the patch doesn't apply cleanly, or when another `agy` window keeps the file open. When the patched binary does not start, the CLI copies the original back by itself and prints what went wrong.
+This can happen when Google updates `agy` and the patch doesn't apply cleanly, or when the file is in use. When the patched binary does not start, the CLI copies the original back by itself and prints what went wrong.
+
+On Windows a program's file cannot be replaced while it runs, nor for a moment after it has exited. The CLI therefore tries again for about a second before it reports the file as in use. If the message stays, another `agy` is still running. That is not always a window: `agy` starts a background updater (`agy --bg-updater`) that can keep running after you close it. Wait for it to finish, or stop it with the commands above.
 
 To go back to the original binary at any time:
 
@@ -358,7 +360,7 @@ antigravity restore
 To restore by hand instead:
 
 ```bash
-# Find the latest backup
+# Find the backup
 ls ~/.local/share/agy/bin/agy.bak-*
 
 # Restore (macOS/Linux)
@@ -441,6 +443,8 @@ Security and correctness release. Thanks to @luanweslley77 for the reports (#1 t
 - **fix**: `agy` is started without a shell, so multi-word arguments arrive intact and the Node `DEP0190` warning is gone (#6).
 - **fix**: `antigravity models` reaches the official `agy models` command. The wrapper's model management is now `antigravity custom-models`; the old `models list|add|remove|import` spellings still work (#5).
 - **fix**: Patch problems are always printed. A patched binary that no longer starts is replaced by the original. `antigravity restore` undoes the patch (#2).
+  - One backup of the original is kept next to `agy`, not one per update.
+  - On Windows a file that is briefly in use is tried again for about a second instead of failing at once.
 - **fix**: Only the Cloud Code endpoint is ever rewritten. The generic rewrite of other `googleapis.com` URLs is removed; it never ran in practice and would have damaged them.
 - **fix**: The published patch manifest is actually loaded (the URL named a branch that does not exist), is cached for a day, and the version notice appears only for `agy` versions newer than the last one reported to work (#1).
 - **fix (Anthropic)**: Valid `anthropic-version` header, numeric schema keywords, streamed tool arguments, one tool-call context per stream, and tool-call arguments passed through unchanged, so Anthropic models work with agy 1.4.x (#7).

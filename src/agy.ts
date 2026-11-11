@@ -19,10 +19,14 @@ export function launchAgy(
   return spawnImpl(binPath, args, { stdio: 'inherit' });
 }
 
-/** The version agy reports, or null when the binary cannot be run. */
-export function readAgyVersion(binPath: string, run: typeof execFileSync = execFileSync): string | null {
+/** The version agy reports, or null when the binary cannot be run or does not answer in time. */
+export function readAgyVersion(
+  binPath: string,
+  run: typeof execFileSync = execFileSync,
+  timeoutMs = 5000,
+): string | null {
   try {
-    const output = run(binPath, ['--version'], { stdio: 'pipe', timeout: 5000 }).toString().trim();
+    const output = run(binPath, ['--version'], { stdio: 'pipe', timeout: timeoutMs }).toString().trim();
     const match = output.match(/(\d+\.\d+\.?\d*)/);
     return match ? match[1] : null;
   } catch {
