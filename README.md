@@ -212,7 +212,7 @@ https://daily-cloudcode-pa.googleapis.com  → http://localhost:50998/v1internal
 
 * **One endpoint, same length**: The replacement is exactly as long as the original URL, so nothing else in the binary moves. Only this endpoint is redirected. If a build does not contain it, the production host (`https://cloudcode-pa.googleapis.com`) is redirected instead. Sign-in and all other Google URLs are never changed.
 * **One backup**: The original binary is saved first, with the agy version and a timestamp in its name (e.g. `agy.exe.bak-1.2.3-2026-05-25T00-30-28-323Z`). `agy` is about 150 MB, so only the original of the installed build is kept: when agy updates itself and is patched again, the previous backup is removed.
-* **Check and undo**: After patching, the CLI checks that `agy --version` still answers. It allows up to 30 seconds for this, because the first start of a rewritten file is slow. If there is no answer, the original is copied back and the problem is printed.
+* **Check and undo**: `agy --version` must answer before the patch and still answer after it. Each check may take up to 30 seconds, because the first start of a file that has just changed is slow. If the patched binary does not answer, the original is copied back and the problem is printed.
 * **Restore**: `antigravity restore` puts the newest unpatched backup back.
 
 `agy` then sends its Cloud Code requests (`fetchAvailableModels`, `streamGenerateContent`, etc.) through the local proxy, where custom model definitions are injected into both the `models` list and `agentModelSorts` (required for models to appear in the agy model selector).

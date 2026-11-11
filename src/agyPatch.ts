@@ -20,10 +20,12 @@ const EARLIER_PORTS = [50999];
 const ENDPOINTS = ['https://daily-cloudcode-pa.googleapis.com', 'https://cloudcode-pa.googleapis.com'];
 
 /**
- * How long the patched binary may take to answer. Its first start is slow because the virus
- * scanner reads the rewritten file first: measured at up to 3 s for the 150 MB agy on a fast disk.
+ * How long agy may take to answer the checks around the patch. The first start after its file
+ * has changed is slow, because the virus scanner reads the 150 MB first: 0.5 to 3.5 s over 40
+ * runs on a fast disk. That is the case after the patch, and before it when agy has just updated
+ * itself. Too short a limit would skip the check or undo a patch that works.
  */
-const PATCHED_START_TIMEOUT_MS = 30_000;
+const START_TIMEOUT_MS = 30_000;
 
 /** A refused write is tried again this often, this far apart: a little over a second in total. */
 const OVERWRITE_ATTEMPTS = 10;
@@ -166,7 +168,7 @@ function signOnMac(binPath: string): void {
 }
 
 export interface PatchSteps {
-  /** `timeoutMs` is passed for the check after patching, which needs longer than a normal start. */
+  /** Runs agy and returns its version, or null when it does not answer within `timeoutMs`. */
   readVersion: (binPath: string, timeoutMs?: number) => string | null;
   sign: (binPath: string) => void;
   /** Waits between attempts to replace a file that is in use. */
@@ -206,13 +208,13 @@ export function ensureAgyPatched(binPath: string, steps: PatchSteps = defaultSte
     }
 
     const patched = plan.buffer;
-    const version = steps.readVersion(binPath);
+    const version = steps.readVersion(binPath, START_TIMEOUT_MS);
     backup = backupFile(binPath, version || undefined);
     overwrite(() => fs.writeFileSync(binPath, patched), pause);
     steps.sign(binPath);
 
     // A binary that answered before the patch must still answer after it.
-    if (version !== null && steps.readVersion(binPath, PATCHED_START_TIMEOUT_MS) === null) {
+    if (version !== null && steps.readVersion(binPath, START_TIMEOUT_MS) === null) {
       if (putBack(binPath, backup, original, pause)) {
         return {
           status: 'failed',

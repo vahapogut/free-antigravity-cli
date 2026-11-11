@@ -161,8 +161,12 @@ describe('applying and undoing the patch', () => {
     expect(backups(file)).toEqual([path.basename(realOriginal)]);
   });
 
-  // The first start of a rewritten executable is slow: the virus scanner has to read it first.
-  test('gives the patched binary longer to answer than a normal start', () => {
+  /**
+   * The first start of an executable whose file has just changed is slow, because the virus
+   * scanner reads it first. That is the case after the patch, and before it when agy has just
+   * updated itself. A check that gives up too early would skip the safety net or undo a good patch.
+   */
+  test('gives agy time to answer, before and after the patch', () => {
     const file = install(binary(DAILY));
     const limits: (number | undefined)[] = [];
 
@@ -175,8 +179,7 @@ describe('applying and undoing the patch', () => {
     });
 
     expect(limits).toHaveLength(2);
-    expect(limits[0]).toBeUndefined();
-    expect(limits[1]).toBeGreaterThanOrEqual(30_000);
+    for (const limit of limits) expect(limit).toBeGreaterThanOrEqual(30_000);
   });
 
   test('reports an unsupported binary and leaves it untouched', () => {
