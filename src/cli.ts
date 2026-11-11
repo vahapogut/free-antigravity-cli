@@ -8,9 +8,9 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import inquirer from 'inquirer';
-import { addModel, removeModel, listModels, ensureConfigDir, saveModels, CustomModelEntry } from './config';
+import { addModel, removeModel, listModels, saveModels, fromDesktopModels, getModelsPath, CustomModelEntry } from './config';
 import { startProxy, getProxyPort, stopProxy } from './proxy';
-import { backupFile, decryptString } from './crypto';
+import { backupFile } from './crypto';
 import { checkAgyCompatibility } from './manifest';
 
 function searchInPath(): string | null {
@@ -296,23 +296,14 @@ async function main(): Promise<void> {
       try {
         const models = (JSON.parse(fs.readFileSync(desktopPath, 'utf-8')) as { models?: any[] }).models || [];
         if (models.length === 0) { console.log('No models in desktop config.'); return; }
-        ensureConfigDir();
-        const imported: CustomModelEntry[] = [];
-        for (const m of models) {
-          let key = m.apiKey || 'none';
-          if (m.encrypted && key !== 'none') {
-            try { key = decryptString(key); }
-            catch (e2) {
-              if (process.env.ANTIGRAVITY_DEBUG === 'true') {
-                console.debug('[Debug] decryptString failed for model:', m.name, (e2 as Error).message);
-              }
-            }
-          }
-          imported.push({ name: m.name, displayName: m.displayName, description: m.description, provider: m.provider, apiKey: key, apiUrl: m.apiUrl, externalModelName: m.externalModelName, allowUnauthorized: m.allowUnauthorized });
-        }
+        const { models: imported, needKey } = fromDesktopModels(models as CustomModelEntry[]);
         saveModels(imported);
-        console.log(`Imported ${imported.length} model(s). NOTE: API keys from desktop need to be re-entered via "antigravity models add".`);
-      } catch (e) { console.error('Import failed:', e); }
+        console.log(`Imported ${imported.length} model(s).`);
+        if (needKey.length > 0) {
+          console.log('The desktop app encrypts these keys for itself, so they could not be copied.');
+          console.log(`Enter the API key again with "antigravity models add" for: ${needKey.join(', ')}`);
+        }
+      } catch (e) { console.error('Import failed:', (e as Error).message); }
       return;
     }
 
@@ -322,7 +313,7 @@ async function main(): Promise<void> {
 
   // --- Info commands ---
   if (cmd === 'configure') {
-    console.log(`Models file: ${path.join(os.homedir(), '.free-antigravity', 'models.json')}`);
+    console.log(`Models file: ${getModelsPath()}`);
     console.log(`Models configured: ${listModels().length}`);
     console.log(`Proxy: ${getProxyPort() ? `port ${getProxyPort()}` : 'not running'}`);
     console.log(`agy binary: ${getAgyBin()}`);

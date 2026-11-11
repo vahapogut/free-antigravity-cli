@@ -50,9 +50,10 @@ import { modelToolCallIds, modelReasoningContent, activeStreamContexts, translat
 import { detectModelCapabilities } from './proxy/modelUtils';
 import * as registry from './proxy/registry';
 import { applyAnthropicPromptCaching } from './proxy/translators/anthropic';
-import { decryptString, encryptString } from './crypto';
 import { validateCustomModel } from './schemaValidator';
 import { isLocalClientRequest, isSafeRequestTarget } from './proxy/requestGuard';
+import { getModelsPath } from './paths';
+import { loadModels } from './config';
 
 // --- Model Helpers ---
 
@@ -68,8 +69,7 @@ export function generateModelPlaceholderId(model: CustomModel): string {
 }
 
 export function getCustomModelsPath(): string {
-  const home = os.homedir();
-  return path.join(home, '.free-antigravity', 'models.json');
+  return getModelsPath();
 }
 
 export function toSlug(model: CustomModel): string {
@@ -86,61 +86,19 @@ export function toSlug(model: CustomModel): string {
 // --- Model Loading ---
 
 export function loadCustomModels(): CustomModel[] {
-  const filePath = getCustomModelsPath();
-
-  if (!fs.existsSync(filePath)) {
-    // Create default config directory and file
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify({ models: [] }, null, 2), 'utf-8');
-    return [];
-  }
-
-  try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const parsed = JSON.parse(content) as { models?: CustomModel[] };
-    const models = parsed.models || [];
-
-    // Auto-migration: encrypt plaintext keys
-    const needsMigration = models.some(
-      (m) => !m.encrypted && m.apiKey && m.apiKey !== 'none' && !m.apiKey.startsWith('enc:') && !m.apiKey.startsWith('fallback:'),
-    );
-    if (needsMigration) {
-      log.info('[Proxy] Migrating plaintext keys to encrypted format...');
-      const encryptedModels = models.map((m) => {
-        if (m.apiKey && m.apiKey !== 'none' && !m.encrypted) {
-          return { ...m, apiKey: encryptString(m.apiKey), encrypted: true };
-        }
-        return m;
-      });
-      fs.writeFileSync(filePath, JSON.stringify({ models: encryptedModels }, null, 2), 'utf-8');
-      return encryptedModels as CustomModel[];
+  // Storage, key decryption and upgrades of older key formats live in config.ts.
+  const validModels: CustomModel[] = [];
+  loadModels().forEach((model, index) => {
+    if (model.encrypted) {
+      // Never send a placeholder to a provider in place of a key that could not be read.
+      log.warn(`[Proxy] Skipping "${model.displayName || model.name}": its saved API key cannot be read. Add the model again with "antigravity models add".`);
+      return;
     }
-
-    // Decrypt keys for in-memory use
-    const decrypted = models.map((m) => {
-      if (m.encrypted && m.apiKey && m.apiKey !== 'none') {
-        try { return { ...m, apiKey: decryptString(m.apiKey), encrypted: false }; }
-        catch { return m; }
-      }
-      return m;
-    });
-
-    // Validate models
-    const validModels: CustomModel[] = [];
-    for (let i = 0; i < decrypted.length; i++) {
-      const validation = validateCustomModel(decrypted[i]) as { valid: boolean; error?: string };
-      if (validation.valid) {
-        validModels.push(decrypted[i] as CustomModel);
-      } else {
-        log.warn(`[Proxy] Skipping invalid model at index ${i}: ${validation.error}`);
-      }
-    }
-    return validModels;
-  } catch (e) {
-    log.error('[Proxy] Failed to parse models config:', e);
-    return [];
-  }
+    const validation = validateCustomModel(model) as { valid: boolean; error?: string };
+    if (validation.valid) validModels.push(model as CustomModel);
+    else log.warn(`[Proxy] Skipping invalid model at index ${index}: ${validation.error}`);
+  });
+  return validModels;
 }
 
 // --- Google Proxy ---

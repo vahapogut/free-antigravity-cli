@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { log } from './logger';
+import { getConfigDir } from './paths';
 
 export interface PatchStrategy {
   agyVersionRange?: string;
@@ -24,7 +25,7 @@ const MANIFEST_URL =
   'https://raw.githubusercontent.com/vahapogut/free-antigravity-cli/main/patch-manifest.json';
 
 function getCachePath(): string {
-  return path.join(os.homedir(), '.free-antigravity', 'patch-manifest.json');
+  return path.join(getConfigDir(), 'patch-manifest.json');
 }
 
 function getBundledPath(): string {

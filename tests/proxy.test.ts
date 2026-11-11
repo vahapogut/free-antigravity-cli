@@ -1,45 +1,7 @@
+import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import * as http from 'http';
 import supertest from 'supertest';
-
-// Mock FS before importing proxy
-jest.mock('fs', () => {
-  const originalFs = jest.requireActual('fs');
-  return {
-    ...originalFs,
-    existsSync: jest.fn((p) => {
-      if (typeof p === 'string' && (p.endsWith('models.json') || p.includes('.free-antigravity'))) return true;
-      return originalFs.existsSync(p);
-    }),
-    readFileSync: jest.fn((p, encoding) => {
-      if (typeof p === 'string' && p.endsWith('models.json')) {
-        return JSON.stringify({
-          models: [
-            {
-              name: 'models/custom-test-model',
-              displayName: 'Custom Test Model',
-              provider: 'openai',
-              apiKey: 'enc:dGVzdC1rZXk=', // already encrypted format to bypass migration
-              encrypted: true,
-              apiUrl: 'https://api.openai.com/v1/chat/completions',
-              externalModelName: 'gpt-4o'
-            }
-          ]
-        });
-      }
-      return originalFs.readFileSync(p, encoding);
-    }),
-    writeFileSync: jest.fn((p, data, encoding) => {
-      if (typeof p === 'string' && p.endsWith('models.json')) return;
-      return originalFs.writeFileSync(p, data, encoding);
-    }),
-    mkdirSync: jest.fn((p, options) => {
-      if (typeof p === 'string' && p.includes('.free-antigravity')) return;
-      return originalFs.mkdirSync(p, options);
-    })
-  };
-});
 
 // Mock HTTPS before importing proxy
 jest.mock('https', () => {
@@ -81,7 +43,22 @@ describe('Proxy Server Integration', () => {
   let port: number;
 
   beforeAll(async () => {
-    // Start proxy
+    // tests/setup-env.ts points FREE_ANTIGRAVITY_HOME at a temporary directory.
+    fs.writeFileSync(
+      path.join(process.env.FREE_ANTIGRAVITY_HOME!, 'models.json'),
+      JSON.stringify({
+        models: [
+          {
+            name: 'models/custom-test-model',
+            displayName: 'Custom Test Model',
+            provider: 'openai',
+            apiKey: 'test-key',
+            apiUrl: 'https://api.openai.com/v1/chat/completions',
+            externalModelName: 'gpt-4o',
+          },
+        ],
+      }),
+    );
     port = await startProxy(0);
     request = supertest(`http://127.0.0.1:${port}`);
   });
