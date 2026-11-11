@@ -106,17 +106,18 @@ async function startAndDelegate(agyArgs: string[]): Promise<void> {
     await checkAgyCompatibility(version);
   }
 
+  // From here on stdout belongs to agy: it has machine-readable modes (--output-format json,
+  // stream-json, the acp server). What the wrapper says itself goes to stderr.
   const patch = ensureAgyPatched(agyBin);
   if (patch.status === 'patched') {
-    console.log('[ok] agy binary patched for custom model support.');
-    console.log('     While it is patched, start agy through "antigravity". "antigravity restore" undoes the patch.');
+    console.error('[ok] agy binary patched for custom model support.');
+    console.error('     While it is patched, start agy through "antigravity". "antigravity restore" undoes the patch.');
   } else if (patch.status === 'failed' || patch.status === 'unsupported') {
     console.error(`[Error] ${patch.message}`);
   }
 
-  process.stdout.write('Starting proxy... ');
   const port = await ensureProxy();
-  console.log(`ready (port ${port})\n`);
+  console.error(`Starting proxy... ready (port ${port})\n`);
 
   const child = launchAgy(agyBin, agyArgs);
   child.on('error', async (error) => {
