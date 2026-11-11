@@ -1,6 +1,11 @@
 import * as path from 'path';
 import { mapGeminiToOpenAI, mapOpenAIToGemini } from '../src/proxy/translators/openai';
-import { mapGeminiToAnthropic, mapAnthropicToGemini } from '../src/proxy/translators/anthropic';
+import {
+  mapGeminiToAnthropic,
+  mapAnthropicToGemini,
+  fixNumericSchemaKeywords,
+  applyAnthropicPromptCaching,
+} from '../src/proxy/translators/anthropic';
 import { translateToolCallToNative, normalizeToolArgs } from '../src/proxy/translators/utils';
 import { stopCleanupInterval } from '../src/proxy/shared';
 
@@ -83,3 +88,74 @@ describe('Tool & Args Utilities', () => {
     stopCleanupInterval();
   });
 });
+
+describe('Anthropic schema keywords', () => {
+  test('fixNumericSchemaKeywords converts stringified int64 keywords to numbers', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        Message: { type: 'string', minLength: '1' },
+        Items: { type: 'array', minItems: '2', items: { type: 'string', maxLength: '10' } },
+        minLength: { type: 'string', description: 'a property literally named minLength' },
+      },
+    };
+    fixNumericSchemaKeywords(schema);
+    expect(schema.properties.Message.minLength).toBe(1);
+    expect(schema.properties.Items.minItems).toBe(2);
+    expect(schema.properties.Items.items.maxLength).toBe(10);
+    expect(schema.properties.minLength).toEqual({ type: 'string', description: 'a property literally named minLength' });
+  });
+});
+
+describe('Anthropic tool calls', () => {
+  test('mapAnthropicToGemini passes tool_use input through unchanged', () => {
+    const res = mapAnthropicToGemini({
+      id: 'msg_1',
+      content: [{ type: 'tool_use', id: 'toolu_1', name: 'read_file', input: { Path: '/tmp/a.txt' } }],
+      stop_reason: 'tool_use',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    } as any, 'models/test');
+    const call = res.candidates[0].content.parts[0].functionCall;
+    expect(call).toEqual({ name: 'read_file', args: { Path: '/tmp/a.txt' }, id: 'toolu_1' });
+  });
+});
+
+describe('Anthropic prompt caching', () => {
+  test('applyAnthropicPromptCaching marks the system prompt and enables automatic caching', () => {
+    const body = mapGeminiToAnthropic({
+      systemInstruction: { parts: [{ text: 'You are a coding agent.' }] },
+      contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+    } as any, 'claude-opus-5-5');
+    applyAnthropicPromptCaching(body);
+    expect(body.system).toEqual([{ type: 'text', text: 'You are a coding agent.', cache_control: { type: 'ephemeral' } }]);
+    expect(body.cache_control).toEqual({ type: 'ephemeral' });
+  });
+
+  test('applyAnthropicPromptCaching leaves an absent system prompt absent', () => {
+    const body = mapGeminiToAnthropic({ contents: [{ role: 'user', parts: [{ text: 'Hi' }] }] } as any, 'claude-opus-5-5');
+    applyAnthropicPromptCaching(body);
+    expect(body.system).toBeUndefined();
+    expect(body.cache_control).toEqual({ type: 'ephemeral' });
+  });
+});
+
+describe('Anthropic sampling parameters', () => {
+  const request = (model: string) =>
+    mapGeminiToAnthropic(
+      { contents: [{ role: 'user', parts: [{ text: 'Hi' }] }], generationConfig: { temperature: 0.2 } } as any,
+      model,
+    );
+
+  // Current Claude models reject sampling parameters with a 400.
+  test.each(['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-2', 'claude-opus-4-8', 'claude-sonnet-4-6'])(
+    'does not forward temperature to %s',
+    (model) => {
+      expect(request(model).temperature).toBeUndefined();
+    },
+  );
+
+  test.each(['deepseek-chat', 'kimi-k2', 'claude-haiku-4-5'])('still forwards temperature to %s', (model) => {
+    expect(request(model).temperature).toBe(0.2);
+  });
+});
+

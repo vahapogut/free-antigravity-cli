@@ -32,7 +32,9 @@ const THINKING_PATTERN = /thinking|reasoning|reasoner|o1|o3|r1|opus-4|sonnet-4|c
 const DEEPSEEK_PATTERN = /deepseek/i;
 const CLAUDE_PATTERN = /claude|opus|sonnet/i;
 const CLAUDE_THINKING_PATTERN = /opus-4|sonnet-4|claude-4|claude-3-5|claude-3-7/i;
-const THINKING_MODEL_PATTERN = /opus-4|sonnet-4|claude-4/i;
+// Claude models that reject sampling parameters such as temperature: the 4.x Opus and Sonnet lines
+// and every family from generation 5 on (opus, sonnet, haiku, fable, mythos).
+const THINKING_MODEL_PATTERN = /opus-4|sonnet-4|claude-4|(?:opus|sonnet|haiku|fable|mythos)-[5-9]/i;
 const IMAGE_SUPPORT_PATTERN = /gpt-4o|gpt-4-turbo|claude|gemini|vision|llava|qwenvl|pixtral|yi-vision|cogvlm|kimi|moonshot/i;
 const NO_IMAGE_PATTERN = /deepseek(?!.*vision)|llama(?!.*vision)|mixtral(?!.*vision)|mistral(?!.*pixtral)|codestral|qwen(?!.*vl)/i;
 

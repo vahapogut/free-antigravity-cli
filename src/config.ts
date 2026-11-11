@@ -3,9 +3,10 @@
  * Stores custom models in ~/.free-antigravity/models.json
  */
 import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import { encryptString, decryptString } from './crypto';
+import { encryptString, decryptString, needsProtection } from './crypto';
+import { getConfigDir, getModelsPath } from './paths';
+
+export { getConfigDir, getModelsPath };
 
 export interface CustomModelEntry {
   name: string;
@@ -16,60 +17,76 @@ export interface CustomModelEntry {
   apiUrl: string;
   externalModelName: string;
   allowUnauthorized?: boolean;
+  /** In memory: true only for a record whose stored key could not be read. */
   encrypted?: boolean;
   timeout?: number;
   maxRetries?: number;
 }
 
-export function getConfigDir(): string {
-  return path.join(os.homedir(), '.free-antigravity');
-}
-
-export function getModelsPath(): string {
-  return path.join(getConfigDir(), 'models.json');
-}
-
 export function ensureConfigDir(): void {
-  const dir = getConfigDir();
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(getConfigDir(), { recursive: true, mode: 0o700 });
 }
 
-export function loadModels(): CustomModelEntry[] {
+/** Replaces the models file in one step; the file is readable only by its owner. */
+function writeModelsFile(models: CustomModelEntry[]): void {
+  ensureConfigDir();
   const filePath = getModelsPath();
-  if (!fs.existsSync(filePath)) return [];
+  const temporary = `${filePath}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify({ models }, null, 2), { encoding: 'utf-8', mode: 0o600 });
+  fs.renameSync(temporary, filePath);
+}
 
+function protect(models: CustomModelEntry[]): CustomModelEntry[] {
+  return models.map((m) =>
+    m.apiKey && m.apiKey !== 'none' && !m.encrypted ? { ...m, apiKey: encryptString(m.apiKey), encrypted: true } : m,
+  );
+}
+
+/**
+ * Returns the saved models with their keys in clear.
+ * A key stored in clear or in a format of an earlier release is re-encrypted on the way.
+ * A record whose key cannot be read is returned untouched with `encrypted: true`, so saving the
+ * list again does not destroy it.
+ */
+export function loadModels(): CustomModelEntry[] {
+  let stored: CustomModelEntry[];
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const parsed = JSON.parse(content) as { models?: CustomModelEntry[] };
-    const models = parsed.models || [];
-
-    return models.map((m) => {
-      if (m.encrypted && m.apiKey && m.apiKey !== 'none') {
-        try { return { ...m, apiKey: decryptString(m.apiKey), encrypted: false }; }
-        catch (e) {
-          if (process.env.ANTIGRAVITY_DEBUG === 'true') {
-            console.debug('[Debug] decryptString failed for model:', m.name, (e as Error).message);
-          }
-          return m;
-        }
-      }
-      return m;
-    });
+    const parsed = JSON.parse(fs.readFileSync(getModelsPath(), 'utf-8')) as { models?: CustomModelEntry[] };
+    stored = Array.isArray(parsed.models) ? parsed.models : [];
   } catch (e) {
-    console.error('Failed to load models:', e);
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') reportOnce(`Failed to load models: ${(e as Error).message}`);
     return [];
   }
+
+  let outdated = false;
+  const models = stored.map((m) => {
+    if (!m.apiKey || m.apiKey === 'none') return { ...m, encrypted: false };
+    const key = decryptString(m.apiKey);
+    if (key === 'DECRYPTION_FAILED') return { ...m, encrypted: true };
+    if (needsProtection(m.apiKey)) outdated = true;
+    return { ...m, apiKey: key, encrypted: false };
+  });
+
+  if (outdated) {
+    try {
+      writeModelsFile(protect(models));
+    } catch (e) {
+      reportOnce(`[Warn] Could not re-encrypt saved API keys: ${(e as Error).message}`);
+    }
+  }
+  return models;
+}
+
+const reported = new Set<string>();
+/** The proxy loads the models on every request while agy owns the terminal, so a problem is printed once. */
+function reportOnce(message: string): void {
+  if (reported.has(message)) return;
+  reported.add(message);
+  console.error(message);
 }
 
 export function saveModels(models: CustomModelEntry[]): void {
-  ensureConfigDir();
-  const encrypted = models.map((m) => {
-    if (m.apiKey && m.apiKey !== 'none' && !m.encrypted) {
-      return { ...m, apiKey: encryptString(m.apiKey), encrypted: true };
-    }
-    return m;
-  });
-  fs.writeFileSync(getModelsPath(), JSON.stringify({ models: encrypted }, null, 2), 'utf-8');
+  writeModelsFile(protect(models));
 }
 
 export function addModel(model: CustomModelEntry): { success: boolean; error?: string } {
@@ -79,14 +96,46 @@ export function addModel(model: CustomModelEntry): { success: boolean; error?: s
   if (existingIdx !== -1) {
     if (model.apiKey && (model.apiKey.includes('...') || model.apiKey.startsWith('***'))) {
       model.apiKey = models[existingIdx].apiKey;
+      model.encrypted = models[existingIdx].encrypted;
     }
     models[existingIdx] = model;
   } else {
     models.push(model);
   }
 
-  saveModels(models);
+  try {
+    saveModels(models);
+  } catch (e) {
+    return { success: false, error: (e as Error).message };
+  }
   return { success: true };
+}
+
+/**
+ * Converts records from the desktop app's custom_models.json.
+ * Keys the desktop app encrypted are tied to that app and cannot be read here, so those models are
+ * imported without a key and reported in `needKey`.
+ */
+export function fromDesktopModels(desktopModels: CustomModelEntry[]): { models: CustomModelEntry[]; needKey: string[] } {
+  const needKey: string[] = [];
+  const models = desktopModels.map((m) => {
+    let apiKey = m.apiKey || 'none';
+    if (m.encrypted && apiKey !== 'none') {
+      apiKey = 'none';
+      needKey.push(m.displayName || m.name);
+    }
+    return {
+      name: m.name,
+      displayName: m.displayName,
+      description: m.description,
+      provider: m.provider,
+      apiKey,
+      apiUrl: m.apiUrl,
+      externalModelName: m.externalModelName,
+      allowUnauthorized: m.allowUnauthorized,
+    };
+  });
+  return { models, needKey };
 }
 
 export function removeModel(modelName: string): { success: boolean; error?: string } {

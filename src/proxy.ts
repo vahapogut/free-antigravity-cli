@@ -8,7 +8,7 @@ import * as https from 'https';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { log } from './logger';
+import { log, describeHeaders, describeTarget } from './logger';
 
 // --- Types ---
 
@@ -49,8 +49,11 @@ let proxyPort = 0;
 import { modelToolCallIds, modelReasoningContent, activeStreamContexts, translatedToolCalls, stateTimestamps, touchStateTimestamp, startCleanupInterval } from './proxy/shared';
 import { detectModelCapabilities } from './proxy/modelUtils';
 import * as registry from './proxy/registry';
-import { decryptString, encryptString } from './crypto';
+import { applyAnthropicPromptCaching } from './proxy/translators/anthropic';
 import { validateCustomModel } from './schemaValidator';
+import { isLocalClientRequest, isSafeRequestTarget } from './proxy/requestGuard';
+import { getModelsPath } from './paths';
+import { loadModels } from './config';
 
 // --- Model Helpers ---
 
@@ -66,8 +69,7 @@ export function generateModelPlaceholderId(model: CustomModel): string {
 }
 
 export function getCustomModelsPath(): string {
-  const home = os.homedir();
-  return path.join(home, '.free-antigravity', 'models.json');
+  return getModelsPath();
 }
 
 export function toSlug(model: CustomModel): string {
@@ -83,62 +85,26 @@ export function toSlug(model: CustomModel): string {
 
 // --- Model Loading ---
 
+/** Models already reported as unreadable; the models are loaded on every request. */
+const reportedUnreadable = new Set<string>();
+
 export function loadCustomModels(): CustomModel[] {
-  const filePath = getCustomModelsPath();
-
-  if (!fs.existsSync(filePath)) {
-    // Create default config directory and file
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify({ models: [] }, null, 2), 'utf-8');
-    return [];
-  }
-
-  try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const parsed = JSON.parse(content) as { models?: CustomModel[] };
-    const models = parsed.models || [];
-
-    // Auto-migration: encrypt plaintext keys
-    const needsMigration = models.some(
-      (m) => !m.encrypted && m.apiKey && m.apiKey !== 'none' && !m.apiKey.startsWith('enc:') && !m.apiKey.startsWith('fallback:'),
-    );
-    if (needsMigration) {
-      log.info('[Proxy] Migrating plaintext keys to encrypted format...');
-      const encryptedModels = models.map((m) => {
-        if (m.apiKey && m.apiKey !== 'none' && !m.encrypted) {
-          return { ...m, apiKey: encryptString(m.apiKey), encrypted: true };
-        }
-        return m;
-      });
-      fs.writeFileSync(filePath, JSON.stringify({ models: encryptedModels }, null, 2), 'utf-8');
-      return encryptedModels as CustomModel[];
-    }
-
-    // Decrypt keys for in-memory use
-    const decrypted = models.map((m) => {
-      if (m.encrypted && m.apiKey && m.apiKey !== 'none') {
-        try { return { ...m, apiKey: decryptString(m.apiKey), encrypted: false }; }
-        catch { return m; }
+  // Storage, key decryption and upgrades of older key formats live in config.ts.
+  const validModels: CustomModel[] = [];
+  loadModels().forEach((model, index) => {
+    if (model.encrypted) {
+      // Never send a placeholder to a provider in place of a key that could not be read.
+      if (!reportedUnreadable.has(model.name)) {
+        reportedUnreadable.add(model.name);
+        log.warn(`[Proxy] Skipping "${model.displayName || model.name}": its saved API key cannot be read. Add the model again with "antigravity custom-models add".`);
       }
-      return m;
-    });
-
-    // Validate models
-    const validModels: CustomModel[] = [];
-    for (let i = 0; i < decrypted.length; i++) {
-      const validation = validateCustomModel(decrypted[i]) as { valid: boolean; error?: string };
-      if (validation.valid) {
-        validModels.push(decrypted[i] as CustomModel);
-      } else {
-        log.warn(`[Proxy] Skipping invalid model at index ${i}: ${validation.error}`);
-      }
+      return;
     }
-    return validModels;
-  } catch (e) {
-    log.error('[Proxy] Failed to parse models config:', e);
-    return [];
-  }
+    const validation = validateCustomModel(model) as { valid: boolean; error?: string };
+    if (validation.valid) validModels.push(model as CustomModel);
+    else log.warn(`[Proxy] Skipping invalid model at index ${index}: ${validation.error}`);
+  });
+  return validModels;
 }
 
 // --- Google Proxy ---
@@ -194,6 +160,10 @@ function handleCustomModelRequest(
     (payload as Record<string, unknown>).stream = true;
   }
 
+  if (provider === 'anthropic') {
+    applyAnthropicPromptCaching(payload as Parameters<typeof applyAnthropicPromptCaching>[0]);
+  }
+
   let finalUrlStr = model.apiUrl;
   if (provider === 'google' || provider === 'ollama') {
     const t = registry.getTranslator(provider);
@@ -246,6 +216,14 @@ function handleCustomModelRequest(
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
 
       let buffer = '';
+      // Per-request stream key so overlapping streams don't share one tool-call context.
+      const streamKey = `stream_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const tagChunk = (parsed: Record<string, unknown>) => {
+        if (parsed && typeof parsed.type === 'string') {
+          parsed.message = { ...((parsed.message as Record<string, unknown>) || {}), id: streamKey };
+        }
+        return parsed;
+      };
       apiRes.on('data', (chunk: Buffer) => {
         buffer += chunk.toString('utf-8');
         const lines = buffer.split('\n');
@@ -256,7 +234,7 @@ function handleCustomModelRequest(
           const dataStr = trimmed.substring(6).trim();
           if (dataStr === '[DONE]') continue;
           try {
-            const parsed = JSON.parse(dataStr);
+            const parsed = tagChunk(JSON.parse(dataStr));
             const mapped = registry.translateStreamChunk(provider, parsed, model.name);
             if (mapped) {
               res.write(`data: ${JSON.stringify({ response: { candidates: [mapped] }, traceId: '', metadata: {} })}\n\n`);
@@ -274,7 +252,7 @@ function handleCustomModelRequest(
           const dataStr = buffer.trim().substring(6).trim();
           if (dataStr !== '[DONE]') {
             try {
-              const parsed = JSON.parse(dataStr);
+              const parsed = tagChunk(JSON.parse(dataStr));
               const mapped = registry.translateStreamChunk(provider, parsed, model.name);
               if (mapped) {
                 res.write(`data: ${JSON.stringify({ response: { candidates: [mapped] }, traceId: '', metadata: {} })}\n\n`);
@@ -359,14 +337,24 @@ function handleCustomModelRequest(
 // --- Main Request Handler ---
 
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
-  // Strip binary patch padding
-  req.url = req.url!.replace(/\/v1internal\/x+/, '');
+  // Only the local agy CLI is served; no CORS headers are sent, so browsers get nothing.
+  if (!isLocalClientRequest(req)) {
+    const shown = (value: string | undefined) => (value === undefined ? 'none' : JSON.stringify(value.slice(0, 100)));
+    log.info(`[Proxy] Refused ${req.method} request: Host ${shown(req.headers.host)}, Origin ${shown(req.headers.origin)}`);
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: 'This proxy only serves the local agy CLI.' } }));
+    return;
+  }
 
-  // CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', '*');
-  res.setHeader('Access-Control-Allow-Headers', '*');
-  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+  // Strip binary patch padding
+  req.url = (req.url || '/').replace(/\/v1internal\/x+/, '');
+
+  // The upstream hosts are fixed; the request target must not be able to replace them.
+  if (!isSafeRequestTarget(req.url)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: 'Invalid request target' } }));
+    return;
+  }
 
   // Health check
   if (req.method === 'GET' && (req.url === '/health' || req.url === '/healthz')) {
@@ -394,10 +382,8 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     if (bodyRejected) return;
     const fullBody = Buffer.concat(bodyChunks);
 
-    log.info(`[Proxy] ${req.method} ${req.url}`);
-    if (process.env.ANTIGRAVITY_DEBUG) {
-      log.info(`[Proxy] Headers: ${JSON.stringify(req.headers)}`);
-    }
+    log.info(`[Proxy] ${req.method} ${describeTarget(req.url)}`);
+    log.info(`[Proxy] Headers: ${describeHeaders(req.headers)}`);
 
     // 1. Intercept fetchAvailableModels - inject custom models
     if (req.url!.includes('/v1internal:fetchAvailableModels')) {

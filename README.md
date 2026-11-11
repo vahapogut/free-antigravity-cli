@@ -62,7 +62,7 @@ curl -fsSL https://antigravity.google/cli/install.cmd -o install.cmd && install.
 npm install -g free-antigravity-cli
 
 # 3. Add your custom models
-antigravity models add
+antigravity custom-models add
 
 # 4. Start chatting (all models appear in agy's model selector)
 antigravity
@@ -86,21 +86,28 @@ antigravity
 ## Commands
 
 ```
-antigravity              Start interactive chat (proxy + agy)
-antigravity chat         Same as above
-antigravity models list  List configured custom models
-antigravity models add   Add a new custom model (interactive wizard)
-antigravity models remove <name>  Remove a custom model
-antigravity models import  Import models from desktop Antigravity
-antigravity configure    Show configuration info
-antigravity version      Show version
-antigravity help         Show this help
+antigravity                              Start interactive chat (proxy + agy)
+antigravity chat                         Same as above
+antigravity custom-models list           List configured custom models
+antigravity custom-models add            Add a new custom model (interactive wizard)
+antigravity custom-models remove <name>  Remove a custom model
+antigravity custom-models import         Import models from desktop Antigravity
+antigravity restore                      Put the original agy binary back
+antigravity configure                    Show configuration info
+antigravity version                      Show version
+antigravity help                         Show this help
 ```
 
-### Options
-* **`--verbose` / `--debug`**: Can be passed to any command to enable proxy request/response logging for troubleshooting.
+`antigravity models list|add|remove|import` still works as the older name for `custom-models`.
 
-Any arguments not listed above are passed directly to `agy` CLI.
+### Options
+* **`--verbose` / `--debug`**: Can be passed to any command to enable proxy request logging for troubleshooting. Credentials (the `Authorization` header, API keys) are not printed.
+
+Any arguments not listed above are passed directly to the `agy` CLI. That includes `agy`'s own `models` command: `antigravity models` lists the models agy sees, custom ones included. To pass an argument that the wrapper would otherwise handle itself, put it after `--`:
+
+```bash
+antigravity -- --help    # agy's help instead of the wrapper's
+```
 
 
 ## Supported Providers
@@ -180,34 +187,39 @@ Models are stored in `~/.free-antigravity/models.json`:
 }
 ```
 
+A key you write into this file in clear text is encrypted the next time the CLI starts; saved keys look like `local-gcm:...`. See [How API Keys Are Protected](#how-api-keys-are-protected).
+
+Set `FREE_ANTIGRAVITY_HOME` to keep these files in a different directory.
+
 ### Importing from Desktop Antigravity
 
 ```bash
-antigravity models import
+antigravity custom-models import
 ```
 
-> **NOTE:** API keys from the desktop app are encrypted with Electron's `safeStorage` and cannot be decrypted by the CLI. After importing, re-enter your API keys via `antigravity models add`.
+> **NOTE:** The desktop app encrypts its API keys for itself, so the CLI cannot read them. Those models are imported without a key, and the command lists them. Enter their keys again with `antigravity custom-models add`.
 
 
 ## Technical Details
 
 ### Binary Patching
 
-On first run, the CLI automatically patches `agy` to replace hardcoded Google API URLs with the local proxy. Starting with **v1.1.0**, the patching system is **update-resilient**:
-
-* **Flexible Patching**: Uses null-byte padding to handle URL replacements of different lengths, so even if Google changes endpoint strings, the patch adapts automatically.
-* **Runtime URL Discovery**: Scans the `agy` binary at startup for any `*.googleapis.com` URLs and patches them dynamically — no hardcoded list required.
-* **Versioned Backups**: Original binaries are backed up with the agy version and timestamp (e.g. `agy.exe.bak-1.2.3-2026-05-25T00-30-28-323Z`) for easy rollback.
-* **Automatic Rollback**: If the proxy health check fails after patching, the CLI automatically restores the most recent working backup.
+On first run, the CLI patches `agy` so that its Cloud Code endpoint points at the local proxy:
 
 ```
 https://daily-cloudcode-pa.googleapis.com  → http://localhost:50998/v1internal/xxxxxxx
-https://cloudcode-pa.googleapis.com        → http://localhost:50998/v1internal/x
 ```
 
-This forces `agy` to route ALL API calls (`fetchAvailableModels`, `loadCodeAssist`, etc.) through the local proxy, where custom model definitions are injected into both the `models` list and `agentModelSorts` (required for models to appear in the agy model selector).
+* **One endpoint, same length**: The replacement is exactly as long as the original URL, so nothing else in the binary moves. Only this endpoint is redirected. If a build does not contain it, the production host (`https://cloudcode-pa.googleapis.com`) is redirected instead. Sign-in and all other Google URLs are never changed.
+* **One backup**: The original binary is saved first, with the agy version and a timestamp in its name (e.g. `agy.exe.bak-1.2.3-2026-05-25T00-30-28-323Z`). `agy` is about 150 MB, so only the original of the installed build is kept: when agy updates itself and is patched again, the previous backup is removed.
+* **Check and undo**: `agy --version` must answer before the patch and still answer after it. Each check may take up to 30 seconds, because the first start of a file that has just changed is slow. If the patched binary does not answer, the original is copied back and the problem is printed.
+* **Restore**: `antigravity restore` puts the newest unpatched backup back.
 
-Old patches (from previous versions using port 50999) are automatically upgraded.
+`agy` then sends its Cloud Code requests (`fetchAvailableModels`, `streamGenerateContent`, etc.) through the local proxy, where custom model definitions are injected into both the `models` list and `agentModelSorts` (required for models to appear in the agy model selector).
+
+> **While `agy` is patched, start it through `antigravity`.** Plain `agy` would send its requests to a proxy that is not running. Run `antigravity restore` to get the original back. When agy updates itself, the new binary is patched on the next start.
+
+Patches written by earlier versions for port 50999 are moved to the current port.
 
 **Port Isolation:** The CLI proxy uses port **50998** by default, separate from the desktop Antigravity proxy on port 50999. Both can run simultaneously without conflict. If port 50998 is busy, the proxy falls back to a dynamic port automatically.
 
@@ -225,6 +237,8 @@ The proxy runs on `http://127.0.0.1:50998` (with automatic fallback if busy) and
 5. **Transparent forwarding**: All other requests pass through to Google unchanged
 6. **Graceful fallback**: If the Google API is unreachable, returns custom models directly with proper sort ordering
 
+**Local only.** The proxy listens on `127.0.0.1`. It answers only requests addressed to its own `Host`, refuses requests that come from a web page (an `Origin` of another site), and sends no CORS headers. A site open in your browser cannot use it.
+
 ### Provider Translation
 
 | Provider | Request Translation | Response Translation | Streaming |
@@ -239,16 +253,16 @@ The proxy runs on `http://127.0.0.1:50998` (with automatic fallback if busy) and
 
 ## Update Resilience
 
-Free Antigravity CLI v1.1.0+ includes several mechanisms to stay compatible when Google updates the `agy` binary:
+`agy` updates itself often. This is how the CLI keeps working across those updates:
 
 | Feature | Description |
 |---|---|
-| **Runtime URL Discovery** | Automatically discovers all `*.googleapis.com` URLs inside the `agy` binary and patches them, even if Google adds new endpoints. |
-| **Flexible Patching** | Patches URLs of different lengths using null-byte padding, so exact length matches are no longer required. |
-| **Versioned Backups** | Each patch creates a timestamped backup tagged with the agy version, making it easy to restore a specific version. |
-| **Auto-Rollback** | If patching fails or the proxy doesn't start, the CLI automatically restores the most recent working backup. |
-| **Remote Patch Manifest** | The CLI can load updated patch strategies from a remote manifest on GitHub, with offline fallback to a local cache and bundled defaults. |
-| **Version Compatibility Check** | On startup, warns if your `agy` version hasn't been tested with the current CLI version, so you know when to report issues. |
+| **Same-length patch** | The Cloud Code endpoint is found in each new binary and replaced by a local URL of the same length. No offsets or version tables are involved. |
+| **One backup** | Each patch first saves the original, tagged with the agy version and a timestamp, and removes the backup of the previous build. |
+| **Check and undo** | After patching, `agy --version` must still answer. If it does not, the original is copied back and the problem is printed. |
+| **Restore command** | `antigravity restore` puts the newest unpatched backup back. |
+| **Published manifest** | The last agy version reported to work is published in this repository (`patch-manifest.json`). The CLI reads it at most once a day, with a cached and a bundled copy as fallback. |
+| **Version notice** | On startup, the CLI tells you when your `agy` is newer than the last version reported to work. |
 
 ### How It Works
 
@@ -257,14 +271,14 @@ agy binary updated by Google
          ↓
 free-antigravity-cli starts
          ↓
-├─ Runtime scan: discovers ALL *.googleapis.com URLs
-├─ Flexible patch: replaces them with localhost proxy
-├─ Proxy health check: verifies everything works
-├─ Fail? → Auto-rollback to latest versioned backup
+├─ Finds the Cloud Code endpoint in the new binary
+├─ Saves the original, then writes the same-length local URL
+├─ Checks that agy still starts
+├─ Fail? → Original copied back, problem printed
 └─ Success → Custom models available in agy selector
 ```
 
-> **Note:** If Google makes a radical change (e.g. removes all plaintext URLs or switches to a completely different architecture), binary patching may no longer be possible. In that case, please [open an issue](https://github.com/vahapogut/free-antigravity-cli/issues).
+> **Note:** If a future `agy` build no longer contains this endpoint as plain text, the CLI leaves the binary unchanged and says so; custom models will then not appear. In that case, please [open an issue](https://github.com/vahapogut/free-antigravity-cli/issues).
 
 
 ## Development
@@ -331,12 +345,22 @@ taskkill //F //IM agy.exe
 pkill agy
 ```
 
-**"Patch failed" / "Rolling back to backup"**
+**"Could not patch agy" / "The patched agy did not start"**
 
-This can happen when Google updates `agy` and the patch doesn't apply cleanly. The CLI automatically restores the most recent working backup. To manually restore:
+This can happen when Google updates `agy` and the patch doesn't apply cleanly, or when the file is in use. When the patched binary does not start, the CLI copies the original back by itself and prints what went wrong.
+
+On Windows a program's file cannot be replaced while it runs, nor for a moment after it has exited. The CLI therefore tries again for about a second before it reports the file as in use. If the message stays, another `agy` is still running. That is not always a window: `agy` starts a background updater (`agy --bg-updater`) that can keep running after you close it. Wait for it to finish, or stop it with the commands above.
+
+To go back to the original binary at any time:
 
 ```bash
-# Find the latest backup
+antigravity restore
+```
+
+To restore by hand instead:
+
+```bash
+# Find the backup
 ls ~/.local/share/agy/bin/agy.bak-*
 
 # Restore (macOS/Linux)
@@ -354,7 +378,7 @@ npm install -g free-antigravity-cli@latest
 
 **Custom models not appearing in agy**
 
-1. Verify models are added: `antigravity models list`
+1. Verify models are added: `antigravity custom-models list`
 2. Ensure API keys are valid (desktop-imported keys may need re-entry)
 3. Restart the CLI after adding models
 
@@ -367,11 +391,13 @@ Yes. The CLI does not have its own login flow. You must sign in to the desktop A
 
 **Q: Are my API keys safe?**
 
-API keys are stored in `~/.free-antigravity/models.json` and encrypted with AES-256-CBC using a machine-specific key derived from your username. They are never sent to Google or any third party except the provider you configured (e.g. OpenAI, Anthropic).
+API keys are stored in `~/.free-antigravity/models.json`, encrypted with AES-256-GCM under a random key kept in `~/.free-antigravity/.credentials-key`. Both files are readable only by your user account. Keys are sent only to the provider you configured (e.g. OpenAI, Anthropic), never to Google or anyone else.
+
+This keeps your keys out of backups, synced folders and shared copies of `models.json`. It does not protect them from software running under your own account, which can read the key file too. See [How API Keys Are Protected](#how-api-keys-are-protected).
 
 **Q: Will this break when Google updates `agy`?**
 
-Starting with v1.1.0, the CLI includes **update-resilient patching**: runtime URL discovery, flexible null-byte padding, versioned backups, and automatic rollback. Most updates are handled automatically. See [Update Resilience](#update-resilience) for details.
+Usually not. The CLI looks for the Cloud Code endpoint in each new binary, so most updates are handled on the next start, and a patch that leaves `agy` unable to start is undone. See [Update Resilience](#update-resilience) for details.
 
 **Q: Can I use this without installing the official Antigravity CLI?**
 
@@ -379,7 +405,7 @@ No. This tool wraps the official `agy` CLI, which must be installed separately. 
 
 **Q: Why are my desktop-imported API keys not working?**
 
-Desktop Antigravity encrypts API keys with Electron's `safeStorage`, which the CLI cannot decrypt. After importing, re-enter your API keys via `antigravity models add`.
+Desktop Antigravity encrypts API keys for itself, so the CLI cannot read them. The import lists the models this applies to; enter their keys again with `antigravity custom-models add`.
 
 **Q: Can I run the proxy on a different port?**
 
@@ -392,18 +418,41 @@ Yes. On macOS, the CLI automatically re-signs the patched binary with `codesign 
 **Q: How do I completely uninstall?**
 
 ```bash
+# Put the original agy binary back first
+antigravity restore
+
 # Uninstall the CLI
 npm uninstall -g free-antigravity-cli
 
 # Remove configuration
 rm -rf ~/.free-antigravity
-
-# Restore original agy binary from backup
-# (see Troubleshooting → "Patch failed" for restore commands)
 ```
 
 
 ## Changelog
+
+### v1.2.0 (2026-11-11)
+
+Security and correctness release. Thanks to @luanweslley77 for the reports (#1 to #6) and to @iOSDevSK for the Anthropic fixes and prompt caching (#7, #8).
+
+- **security**: The local proxy now serves only the local `agy`. It checks `Host`, refuses requests from web pages, and sends no CORS headers (#4).
+- **security**: Saved API keys are encrypted with AES-256-GCM under a random key file instead of a key derived from the user name. `models.json` and the key file are readable only by their owner (#3).
+  - Keys saved by earlier versions are re-encrypted automatically on the first start.
+  - Until then they were only obscured. If someone else could read your `models.json`, rotate those keys at the provider.
+- **security**: `--verbose` no longer prints the `Authorization` header or API keys.
+- **fix**: `agy` is started without a shell, so multi-word arguments arrive intact and the Node `DEP0190` warning is gone (#6).
+- **fix**: `antigravity models` reaches the official `agy models` command. The wrapper's model management is now `antigravity custom-models`; the old `models list|add|remove|import` spellings still work (#5).
+- **fix**: Patch problems are always printed. A patched binary that no longer starts is replaced by the original. `antigravity restore` undoes the patch (#2).
+  - One backup of the original is kept next to `agy`, not one per update.
+  - On Windows a file that is briefly in use is tried again for about a second instead of failing at once.
+- **fix**: Only the Cloud Code endpoint is ever rewritten. The generic rewrite of other `googleapis.com` URLs is removed; it never ran in practice and would have damaged them.
+- **fix**: The published patch manifest is actually loaded (the URL named a branch that does not exist), is cached for a day, and the version notice appears only for `agy` versions newer than the last one reported to work (#1).
+- **fix (Anthropic)**: Valid `anthropic-version` header, numeric schema keywords, streamed tool arguments, one tool-call context per stream, and tool-call arguments passed through unchanged, so Anthropic models work with agy 1.4.x (#7).
+- **feat (Anthropic)**: Prompt caching for requests to the Anthropic API (#8).
+- **fix (Anthropic)**: `temperature` is no longer sent to current Claude models, which reject it.
+- **fix**: The wrapper's own status lines go to stderr. Stdout carries only what `agy` prints, so `--output-format json` and `antigravity acp` can be read by other programs.
+- **change**: `FREE_ANTIGRAVITY_HOME` overrides the configuration directory.
+- Checked against `agy` 1.5.6 and 1.0.3 on Windows.
 
 ### v1.1.0 (2025-05-25)
 
@@ -435,10 +484,18 @@ If you discover a security issue, please **do not open a public issue**. Instead
 
 | Layer | Protection |
 |---|---|
-| **Storage** | `~/.free-antigravity/models.json` (user home, not world-readable) |
-| **Encryption** | AES-256-CBC with machine-specific key derived from `process.env.USERNAME` |
+| **Storage** | `~/.free-antigravity/models.json`, written with owner-only permissions (`0600`; on Windows the file inherits the permissions of your profile folder) |
+| **Encryption** | AES-256-GCM under a random 256-bit key in `~/.free-antigravity/.credentials-key` (owner-only) |
 | **Transport** | Sent only to the provider you configured (OpenAI, Anthropic, etc.) via HTTPS |
 | **Memory** | Decrypted only when needed; not logged or persisted in plain text |
+
+**What this does and does not protect.** The key file sits next to the data it protects. Encryption therefore keeps your keys out of backups, synced folders and copies of `models.json` that you share, but not from software running under your own user account. Back up `.credentials-key` together with `models.json`, or enter the keys again after restoring.
+
+**Upgrading from 1.1.5 or earlier.** Those versions derived the encryption key from your user name, which is not a secret. Your saved keys are re-encrypted automatically the first time 1.2.0 starts. If anyone else could read your `models.json` before that, rotate those keys at the provider.
+
+### Local Proxy Access
+
+The proxy listens on `127.0.0.1` only. It accepts a request only when its `Host` header is the proxy's own address, refuses requests whose `Origin` is another site, and sends no CORS headers, so a web page open in your browser cannot use it. Other programs running on your computer can still reach it, as with any local service.
 
 ### macOS Code Signing
 
