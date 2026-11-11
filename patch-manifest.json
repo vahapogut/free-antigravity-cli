@@ -1,7 +1,7 @@
 {
   "$schema": "./patch-manifest.schema.json",
-  "lastUpdated": "2025-05-25T00:00:00Z",
-  "latestKnownAgyVersion": "1.0.0",
+  "lastUpdated": "2026-11-11T00:00:00Z",
+  "latestKnownAgyVersion": "1.4.12",
   "strategies": [
     {
       "agyVersionRange": ">=1.0.0",
@@ -9,13 +9,9 @@
         {
           "orig": "https://daily-cloudcode-pa.googleapis.com",
           "repl": "http://localhost:{{PORT}}/v1internal/xxxxxxx"
-        },
-        {
-          "orig": "https://cloudcode-pa.googleapis.com",
-          "repl": "http://localhost:{{PORT}}/v1internal/x"
         }
       ],
-      "notes": "Default targets for agy >= 1.0.0. Dynamic URL discovery will catch additional Google endpoints."
+      "notes": "Reported working: agy 1.4.12 on macOS (pull request #7), agy 1.2.12 and 1.3.4 on Linux (issue #1). The CLI redirects the daily Cloud Code host; when a build does not contain it, the production host is redirected instead."
     }
   ]
 }
