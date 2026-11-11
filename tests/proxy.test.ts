@@ -84,6 +84,34 @@ describe('Proxy Server Integration', () => {
     expect(customExists).toBe(true);
   });
 
+  test('verbose logging never prints credentials', async () => {
+    const lines: string[] = [];
+    const capture = (...args: unknown[]) => void lines.push(args.map(String).join(' '));
+    const spies = [
+      jest.spyOn(console, 'log').mockImplementation(capture),
+      jest.spyOn(console, 'debug').mockImplementation(capture),
+    ];
+    const previous = process.env.ANTIGRAVITY_DEBUG;
+    process.env.ANTIGRAVITY_DEBUG = 'true';
+    try {
+      await request
+        .post('/v1internal:fetchAvailableModels?key=query-secret-123')
+        .set('Authorization', 'Bearer ya29.session-secret-456')
+        .set('x-goog-api-key', 'header-secret-789')
+        .set('x-custom', 'visible-value');
+    } finally {
+      if (previous === undefined) delete process.env.ANTIGRAVITY_DEBUG;
+      else process.env.ANTIGRAVITY_DEBUG = previous;
+      spies.forEach((spy) => spy.mockRestore());
+    }
+    const output = lines.join(' | ');
+    expect(output).toContain('fetchAvailableModels');
+    expect(output).toContain('visible-value');
+    for (const secret of ['query-secret-123', 'ya29.session-secret-456', 'header-secret-789']) {
+      expect(output).not.toContain(secret);
+    }
+  });
+
   // The proxy serves one native client (agy). A web page must not be able to use it.
   describe('local-only access', () => {
     const corsHeaders = ['access-control-allow-origin', 'access-control-allow-methods', 'access-control-allow-headers'];

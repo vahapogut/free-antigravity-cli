@@ -8,7 +8,7 @@ import * as https from 'https';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { log } from './logger';
+import { log, describeHeaders, describeTarget } from './logger';
 
 // --- Types ---
 
@@ -374,10 +374,8 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     if (bodyRejected) return;
     const fullBody = Buffer.concat(bodyChunks);
 
-    log.info(`[Proxy] ${req.method} ${req.url}`);
-    if (process.env.ANTIGRAVITY_DEBUG) {
-      log.info(`[Proxy] Headers: ${JSON.stringify(req.headers)}`);
-    }
+    log.info(`[Proxy] ${req.method} ${describeTarget(req.url)}`);
+    log.info(`[Proxy] Headers: ${describeHeaders(req.headers)}`);
 
     // 1. Intercept fetchAvailableModels - inject custom models
     if (req.url!.includes('/v1internal:fetchAvailableModels')) {
