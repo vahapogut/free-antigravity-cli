@@ -450,7 +450,9 @@ Security and correctness release. Thanks to @luanweslley77 for the reports (#1 t
 - **fix (Anthropic)**: Valid `anthropic-version` header, numeric schema keywords, streamed tool arguments, one tool-call context per stream, and tool-call arguments passed through unchanged, so Anthropic models work with agy 1.4.x (#7).
 - **feat (Anthropic)**: Prompt caching for requests to the Anthropic API (#8).
 - **fix (Anthropic)**: `temperature` is no longer sent to current Claude models, which reject it.
+- **fix**: The wrapper's own status lines go to stderr. Stdout carries only what `agy` prints, so `--output-format json` and `antigravity acp` can be read by other programs.
 - **change**: `FREE_ANTIGRAVITY_HOME` overrides the configuration directory.
+- Checked against `agy` 1.5.6 and 1.0.3 on Windows.
 
 ### v1.1.0 (2025-05-25)
 
