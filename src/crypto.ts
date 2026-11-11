@@ -78,12 +78,3 @@ export function decryptString(storedText: string): string {
 export function needsProtection(storedText: string | undefined): boolean {
   return !!storedText && storedText !== 'none' && !storedText.startsWith(PREFIX);
 }
-
-export function backupFile(filePath: string, version?: string): string {
-  if (!fs.existsSync(filePath)) return '';
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const ver = version || 'unknown';
-  const backupPath = `${filePath}.bak-${ver}-${timestamp}`;
-  fs.copyFileSync(filePath, backupPath);
-  return backupPath;
-}
