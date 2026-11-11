@@ -52,6 +52,7 @@ import * as registry from './proxy/registry';
 import { applyAnthropicPromptCaching } from './proxy/translators/anthropic';
 import { decryptString, encryptString } from './crypto';
 import { validateCustomModel } from './schemaValidator';
+import { isLocalClientRequest, isSafeRequestTarget } from './proxy/requestGuard';
 
 // --- Model Helpers ---
 
@@ -372,14 +373,22 @@ function handleCustomModelRequest(
 // --- Main Request Handler ---
 
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
-  // Strip binary patch padding
-  req.url = req.url!.replace(/\/v1internal\/x+/, '');
+  // Only the local agy CLI is served; no CORS headers are sent, so browsers get nothing.
+  if (!isLocalClientRequest(req)) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: 'This proxy only serves the local agy CLI.' } }));
+    return;
+  }
 
-  // CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', '*');
-  res.setHeader('Access-Control-Allow-Headers', '*');
-  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+  // Strip binary patch padding
+  req.url = (req.url || '/').replace(/\/v1internal\/x+/, '');
+
+  // The upstream hosts are fixed; the request target must not be able to replace them.
+  if (!isSafeRequestTarget(req.url)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: 'Invalid request target' } }));
+    return;
+  }
 
   // Health check
   if (req.method === 'GET' && (req.url === '/health' || req.url === '/healthz')) {
