@@ -246,6 +246,14 @@ function handleCustomModelRequest(
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
 
       let buffer = '';
+      // Per-request stream key so overlapping streams don't share one tool-call context.
+      const streamKey = `stream_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const tagChunk = (parsed: Record<string, unknown>) => {
+        if (parsed && typeof parsed.type === 'string') {
+          parsed.message = { ...((parsed.message as Record<string, unknown>) || {}), id: streamKey };
+        }
+        return parsed;
+      };
       apiRes.on('data', (chunk: Buffer) => {
         buffer += chunk.toString('utf-8');
         const lines = buffer.split('\n');
@@ -256,7 +264,7 @@ function handleCustomModelRequest(
           const dataStr = trimmed.substring(6).trim();
           if (dataStr === '[DONE]') continue;
           try {
-            const parsed = JSON.parse(dataStr);
+            const parsed = tagChunk(JSON.parse(dataStr));
             const mapped = registry.translateStreamChunk(provider, parsed, model.name);
             if (mapped) {
               res.write(`data: ${JSON.stringify({ response: { candidates: [mapped] }, traceId: '', metadata: {} })}\n\n`);
@@ -274,7 +282,7 @@ function handleCustomModelRequest(
           const dataStr = buffer.trim().substring(6).trim();
           if (dataStr !== '[DONE]') {
             try {
-              const parsed = JSON.parse(dataStr);
+              const parsed = tagChunk(JSON.parse(dataStr));
               const mapped = registry.translateStreamChunk(provider, parsed, model.name);
               if (mapped) {
                 res.write(`data: ${JSON.stringify({ response: { candidates: [mapped] }, traceId: '', metadata: {} })}\n\n`);

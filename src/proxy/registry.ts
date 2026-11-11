@@ -123,7 +123,7 @@ export function getProviderHeaders(provider: string, apiKey: string): ProviderHe
 
   if (provider === 'anthropic' || ANTHROPIC_COMPAT.has(provider)) {
     headers['x-api-key'] = apiKey;
-    headers['anthropic-version'] = '2025-04-01';
+    headers['anthropic-version'] = '2023-06-01';
   } else if (provider === 'google') {
     headers['x-goog-api-key'] = apiKey;
   } else if (provider === 'openrouter') {

@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { mapGeminiToOpenAI, mapOpenAIToGemini } from '../src/proxy/translators/openai';
-import { mapGeminiToAnthropic, mapAnthropicToGemini } from '../src/proxy/translators/anthropic';
+import { mapGeminiToAnthropic, mapAnthropicToGemini, fixNumericSchemaKeywords } from '../src/proxy/translators/anthropic';
 import { translateToolCallToNative, normalizeToolArgs } from '../src/proxy/translators/utils';
 import { stopCleanupInterval } from '../src/proxy/shared';
 
@@ -81,5 +81,36 @@ describe('Tool & Args Utilities', () => {
 
   afterAll(() => {
     stopCleanupInterval();
+  });
+});
+
+describe('Anthropic schema keywords', () => {
+  test('fixNumericSchemaKeywords converts stringified int64 keywords to numbers', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        Message: { type: 'string', minLength: '1' },
+        Items: { type: 'array', minItems: '2', items: { type: 'string', maxLength: '10' } },
+        minLength: { type: 'string', description: 'a property literally named minLength' },
+      },
+    };
+    fixNumericSchemaKeywords(schema);
+    expect(schema.properties.Message.minLength).toBe(1);
+    expect(schema.properties.Items.minItems).toBe(2);
+    expect(schema.properties.Items.items.maxLength).toBe(10);
+    expect(schema.properties.minLength).toEqual({ type: 'string', description: 'a property literally named minLength' });
+  });
+});
+
+describe('Anthropic tool calls', () => {
+  test('mapAnthropicToGemini passes tool_use input through unchanged', () => {
+    const res = mapAnthropicToGemini({
+      id: 'msg_1',
+      content: [{ type: 'tool_use', id: 'toolu_1', name: 'read_file', input: { Path: '/tmp/a.txt' } }],
+      stop_reason: 'tool_use',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    } as any, 'models/test');
+    const call = res.candidates[0].content.parts[0].functionCall;
+    expect(call).toEqual({ name: 'read_file', args: { Path: '/tmp/a.txt' }, id: 'toolu_1' });
   });
 });

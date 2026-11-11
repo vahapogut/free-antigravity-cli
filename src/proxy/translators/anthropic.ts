@@ -7,9 +7,7 @@ import * as path from 'path';
 import { log } from '../../logger';
 import {
   fixParamTypes,
-  translateToolCallToNative,
   formatTranslatedResponse,
-  normalizeToolArgs,
   ToolCallArgs,
 } from './utils';
 import {
@@ -148,6 +146,31 @@ interface GeminiUsageMetadata {
 
 // ─── REQUEST: Gemini → Anthropic ──────────────────────────────────────────
 
+// Gemini proto schemas encode int64 keywords (minLength, minItems, ...) as strings; JSON Schema needs numbers.
+const NUMERIC_SCHEMA_KEYWORDS = new Set([
+  'minLength', 'maxLength', 'minItems', 'maxItems', 'minProperties', 'maxProperties',
+  'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf',
+]);
+
+export function fixNumericSchemaKeywords(node: unknown): void {
+  if (Array.isArray(node)) {
+    node.forEach(fixNumericSchemaKeywords);
+    return;
+  }
+  if (!node || typeof node !== 'object') return;
+  const obj = node as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (NUMERIC_SCHEMA_KEYWORDS.has(key) && typeof val === 'string' && val.trim() !== '' && !isNaN(Number(val))) {
+      obj[key] = Number(val);
+    } else if (key === 'properties' && val && typeof val === 'object') {
+      Object.values(val as Record<string, unknown>).forEach(fixNumericSchemaKeywords);
+    } else if (val && typeof val === 'object') {
+      fixNumericSchemaKeywords(val);
+    }
+  }
+}
+
 function mapGeminiToolsToAnthropic(geminiTools: GeminiTool[]): AnthropicTool[] {
   if (!geminiTools || !Array.isArray(geminiTools)) return [];
   const anthropicTools: AnthropicTool[] = [];
@@ -163,6 +186,7 @@ function mapGeminiToolsToAnthropic(geminiTools: GeminiTool[]): AnthropicTool[] {
         if (params.properties) {
           fixParamTypes(params.properties as Record<string, unknown>);
         }
+        fixNumericSchemaKeywords(params);
         anthropicTools.push({
           name: func.name,
           description: func.description || '',
@@ -298,21 +322,11 @@ export function mapAnthropicToGemini(anthRes: AnthropicResponse, modelName: stri
       modelToolCallIds.set(modelName, modelTCIds);
       touchStateTimestamp(stateTimestamps.toolCallIds, modelName);
 
-      const normalizedInput = normalizeToolArgs(block.name || '', block.input || {});
-      const translated = translateToolCallToNative(block.name || '', normalizedInput);
-      if (translated.name !== block.name) {
-        translated.args = normalizeToolArgs(translated.name, translated.args) as Record<string, unknown>;
-        translatedToolCalls.set(block.id || '', {
-          originalName: block.name || '',
-          translatedName: translated.name,
-          cmd: (normalizedInput.CommandLine as string) || '',
-          cwd: (normalizedInput.Cwd as string) || '',
-        });
-        touchStateTimestamp(stateTimestamps.translatedCalls, block.id || '');
-      }
-
+      // Claude receives agy's real tool schemas and follows them, so its args are passed through
+      // unchanged. Legacy normalization (AbsolutePath aliases, run_command -> view_file/grep_search)
+      // targets tools that agy >= 1.4 no longer exposes and makes agy reject the call.
       functionCalls.push({
-        functionCall: { name: translated.name, args: translated.args as Record<string, unknown>, id: block.id },
+        functionCall: { name: block.name || '', args: (block.input || {}) as Record<string, unknown>, id: block.id },
       });
     }
   }
@@ -378,7 +392,7 @@ export function mapAnthropicChunkToGemini(chunk: AnthropicResponse, modelName: s
         finishReason: 'OTHER',
         index: 0,
       };
-    } else if (delta?.type === 'input_delta') {
+    } else if (delta?.type === 'input_json_delta' || delta?.type === 'input_delta') {
       if (context.toolCalls[idx]) {
         context.toolCalls[idx].arguments += delta.partial_json || '';
       }
@@ -396,22 +410,12 @@ export function mapAnthropicChunkToGemini(chunk: AnthropicResponse, modelName: s
           log.debug('[Anthropic] Stream tool args parse fallback:', (e as Error).message);
           args = {};
         }
-        args = normalizeToolArgs(tc.name, args) as ToolCallArgs;
         const modelTCIds = modelToolCallIds.get(modelName) || {};
         modelTCIds[tc.name] = tc.id;
         modelToolCallIds.set(modelName, modelTCIds);
         touchStateTimestamp(stateTimestamps.toolCallIds, modelName);
-        const translated = translateToolCallToNative(tc.name, args);
-        if (translated.name !== tc.name) {
-          translatedToolCalls.set(tc.id, {
-            originalName: tc.name,
-            translatedName: translated.name,
-            cmd: args.CommandLine || '',
-            cwd: args.Cwd || '',
-          });
-          touchStateTimestamp(stateTimestamps.translatedCalls, tc.id);
-        }
-        return { functionCall: { name: translated.name, args: translated.args as Record<string, unknown>, id: tc.id } };
+        // Passed through unchanged; see mapAnthropicToGemini.
+        return { functionCall: { name: tc.name, args: args as Record<string, unknown>, id: tc.id } };
       });
       activeStreamContexts.delete(streamId);
       return { content: { parts, role: 'model' }, finishReason: 'TOOL_CALL', index: 0 };
