@@ -157,6 +157,25 @@ describe('proxy model loading', () => {
 
     expect(loadCustomModels().map((m) => m.name)).toEqual(['models/keyless']);
   });
+
+  // The proxy loads the models on every request while agy owns the terminal.
+  test('mentions an unreadable key once, not on every load', () => {
+    const unreadable = 'enc:' + Buffer.from('not a real ciphertext').toString('base64');
+    fs.writeFileSync(
+      getModelsPath(),
+      JSON.stringify({ models: [model({ name: 'models/warn-once', displayName: 'Warn Once', apiKey: unreadable, encrypted: true })] }),
+    );
+    const lines: string[] = [];
+    const spy = jest.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => void lines.push(args.join(' ')));
+    try {
+      loadCustomModels();
+      loadCustomModels();
+      loadCustomModels();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(lines.filter((line) => line.includes('Warn Once'))).toHaveLength(1);
+  });
 });
 
 describe('importing models from the desktop app', () => {

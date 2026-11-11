@@ -54,7 +54,7 @@ export function loadModels(): CustomModelEntry[] {
     const parsed = JSON.parse(fs.readFileSync(getModelsPath(), 'utf-8')) as { models?: CustomModelEntry[] };
     stored = Array.isArray(parsed.models) ? parsed.models : [];
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') console.error('Failed to load models:', (e as Error).message);
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') reportOnce(`Failed to load models: ${(e as Error).message}`);
     return [];
   }
 
@@ -71,10 +71,18 @@ export function loadModels(): CustomModelEntry[] {
     try {
       writeModelsFile(protect(models));
     } catch (e) {
-      console.warn('[Warn] Could not re-encrypt saved API keys:', (e as Error).message);
+      reportOnce(`[Warn] Could not re-encrypt saved API keys: ${(e as Error).message}`);
     }
   }
   return models;
+}
+
+const reported = new Set<string>();
+/** The proxy loads the models on every request while agy owns the terminal, so a problem is printed once. */
+function reportOnce(message: string): void {
+  if (reported.has(message)) return;
+  reported.add(message);
+  console.error(message);
 }
 
 export function saveModels(models: CustomModelEntry[]): void {

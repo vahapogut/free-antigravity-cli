@@ -85,13 +85,19 @@ export function toSlug(model: CustomModel): string {
 
 // --- Model Loading ---
 
+/** Models already reported as unreadable; the models are loaded on every request. */
+const reportedUnreadable = new Set<string>();
+
 export function loadCustomModels(): CustomModel[] {
   // Storage, key decryption and upgrades of older key formats live in config.ts.
   const validModels: CustomModel[] = [];
   loadModels().forEach((model, index) => {
     if (model.encrypted) {
       // Never send a placeholder to a provider in place of a key that could not be read.
-      log.warn(`[Proxy] Skipping "${model.displayName || model.name}": its saved API key cannot be read. Add the model again with "antigravity models add".`);
+      if (!reportedUnreadable.has(model.name)) {
+        reportedUnreadable.add(model.name);
+        log.warn(`[Proxy] Skipping "${model.displayName || model.name}": its saved API key cannot be read. Add the model again with "antigravity custom-models add".`);
+      }
       return;
     }
     const validation = validateCustomModel(model) as { valid: boolean; error?: string };
