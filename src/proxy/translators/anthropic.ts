@@ -95,11 +95,22 @@ interface AnthropicMessage {
   content: string | AnthropicContentBlock[];
 }
 
+interface AnthropicCacheControl {
+  type: 'ephemeral';
+}
+
+interface AnthropicSystemBlock {
+  type: 'text';
+  text: string;
+  cache_control?: AnthropicCacheControl;
+}
+
 interface AnthropicRequestBody {
   model: string;
   messages: AnthropicMessage[];
-  system?: string;
+  system?: string | AnthropicSystemBlock[];
   max_tokens: number;
+  cache_control?: AnthropicCacheControl;
   temperature?: number;
   tools?: AnthropicTool[];
 }
@@ -196,6 +207,21 @@ function mapGeminiToolsToAnthropic(geminiTools: GeminiTool[]): AnthropicTool[] {
     }
   }
   return anthropicTools;
+}
+
+/**
+ * Enables Anthropic prompt caching on a translated request: an explicit breakpoint on the static
+ * system prompt plus top-level automatic caching, which moves a breakpoint forward over the growing
+ * conversation. Agent loops resend the full system prompt, tools and history on every step, so
+ * cached reads (~0.1x input price) replace most full-price input tokens.
+ * Only for the first-party Anthropic API: Anthropic-compatible providers may reject these fields.
+ */
+export function applyAnthropicPromptCaching(body: AnthropicRequestBody): AnthropicRequestBody {
+  if (typeof body.system === 'string' && body.system.length > 0) {
+    body.system = [{ type: 'text', text: body.system, cache_control: { type: 'ephemeral' } }];
+  }
+  body.cache_control = { type: 'ephemeral' };
+  return body;
 }
 
 export function mapGeminiToAnthropic(geminiBody: GeminiRequestBody, modelName: string): AnthropicRequestBody {

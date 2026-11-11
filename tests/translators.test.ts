@@ -1,6 +1,11 @@
 import * as path from 'path';
 import { mapGeminiToOpenAI, mapOpenAIToGemini } from '../src/proxy/translators/openai';
-import { mapGeminiToAnthropic, mapAnthropicToGemini, fixNumericSchemaKeywords } from '../src/proxy/translators/anthropic';
+import {
+  mapGeminiToAnthropic,
+  mapAnthropicToGemini,
+  fixNumericSchemaKeywords,
+  applyAnthropicPromptCaching,
+} from '../src/proxy/translators/anthropic';
 import { translateToolCallToNative, normalizeToolArgs } from '../src/proxy/translators/utils';
 import { stopCleanupInterval } from '../src/proxy/shared';
 
@@ -112,5 +117,24 @@ describe('Anthropic tool calls', () => {
     } as any, 'models/test');
     const call = res.candidates[0].content.parts[0].functionCall;
     expect(call).toEqual({ name: 'read_file', args: { Path: '/tmp/a.txt' }, id: 'toolu_1' });
+  });
+});
+
+describe('Anthropic prompt caching', () => {
+  test('applyAnthropicPromptCaching marks the system prompt and enables automatic caching', () => {
+    const body = mapGeminiToAnthropic({
+      systemInstruction: { parts: [{ text: 'You are a coding agent.' }] },
+      contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+    } as any, 'claude-opus-5-5');
+    applyAnthropicPromptCaching(body);
+    expect(body.system).toEqual([{ type: 'text', text: 'You are a coding agent.', cache_control: { type: 'ephemeral' } }]);
+    expect(body.cache_control).toEqual({ type: 'ephemeral' });
+  });
+
+  test('applyAnthropicPromptCaching leaves an absent system prompt absent', () => {
+    const body = mapGeminiToAnthropic({ contents: [{ role: 'user', parts: [{ text: 'Hi' }] }] } as any, 'claude-opus-5-5');
+    applyAnthropicPromptCaching(body);
+    expect(body.system).toBeUndefined();
+    expect(body.cache_control).toEqual({ type: 'ephemeral' });
   });
 });
