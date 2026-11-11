@@ -138,3 +138,24 @@ describe('Anthropic prompt caching', () => {
     expect(body.cache_control).toEqual({ type: 'ephemeral' });
   });
 });
+
+describe('Anthropic sampling parameters', () => {
+  const request = (model: string) =>
+    mapGeminiToAnthropic(
+      { contents: [{ role: 'user', parts: [{ text: 'Hi' }] }], generationConfig: { temperature: 0.2 } } as any,
+      model,
+    );
+
+  // Current Claude models reject sampling parameters with a 400.
+  test.each(['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-2', 'claude-opus-4-8', 'claude-sonnet-4-6'])(
+    'does not forward temperature to %s',
+    (model) => {
+      expect(request(model).temperature).toBeUndefined();
+    },
+  );
+
+  test.each(['deepseek-chat', 'kimi-k2', 'claude-haiku-4-5'])('still forwards temperature to %s', (model) => {
+    expect(request(model).temperature).toBe(0.2);
+  });
+});
+
