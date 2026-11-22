@@ -7,6 +7,7 @@ import * as path from 'path';
 import { log } from '../../logger';
 import {
   fixParamTypes,
+  fixNumericSchemaKeywords,
   translateToolCallToNative,
   formatTranslatedResponse,
   normalizeToolArgs,
@@ -188,6 +189,7 @@ function mapGeminiToolsToOpenAI(geminiTools: GeminiTool[]): OpenAITool[] {
         if (params.properties) {
           fixParamTypes(params.properties as Record<string, unknown>);
         }
+        fixNumericSchemaKeywords(params);
         openaiTools.push({
           type: 'function',
           function: {

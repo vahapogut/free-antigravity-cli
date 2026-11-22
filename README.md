@@ -431,6 +431,10 @@ rm -rf ~/.free-antigravity
 
 ## Changelog
 
+### v1.2.1 (2026-11-22)
+
+- **fix**: Tool schemas sent to OpenAI-compatible providers (`openai`, `custom`, `ollama`, `openrouter`, `groq`, ...) carry `minLength`, `maxItems` and similar keywords as numbers. agy sends them as strings, and servers that build a grammar from the schema, such as llama.cpp, rejected the request (#11). The `anthropic`, `llamacpp` and `lmstudio` providers already did this in 1.2.0.
+
 ### v1.2.0 (2026-11-11)
 
 Security and correctness release. Thanks to @luanweslley77 for the reports (#1 to #6) and to @iOSDevSK for the Anthropic fixes and prompt caching (#7, #8).
