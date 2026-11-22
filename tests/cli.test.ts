@@ -4,6 +4,7 @@
  * stdout must carry agy's output and nothing else. agy, the proxy and the patch are replaced here.
  */
 const mockLaunched: string[][] = [];
+const mockTouched: string[] = [];
 
 jest.mock('../src/proxy', () => ({
   startProxy: jest.fn(async () => 50998),
@@ -11,6 +12,7 @@ jest.mock('../src/proxy', () => ({
   getProxyPort: () => 50998,
 }));
 jest.mock('../src/agy', () => ({
+  locateAgy: jest.requireActual('../src/agy').locateAgy,
   readAgyVersion: () => '1.5.6',
   launchAgy: (_binPath: string, args: string[]) => {
     mockLaunched.push(args);
@@ -18,8 +20,14 @@ jest.mock('../src/agy', () => ({
   },
 }));
 jest.mock('../src/agyPatch', () => ({
-  ensureAgyPatched: () => ({ status: 'patched', backup: 'agy.bak-1.5.6-2026-11-12T00-00-00-000Z' }),
-  restoreAgy: () => ({ status: 'not-patched' }),
+  ensureAgyPatched: (binPath: string) => {
+    mockTouched.push(`patch ${binPath}`);
+    return { status: 'patched', backup: 'agy.bak-1.5.6-2026-11-12T00-00-00-000Z' };
+  },
+  restoreAgy: (binPath: string) => {
+    mockTouched.push(`restore ${binPath}`);
+    return { status: 'not-patched' };
+  },
 }));
 jest.mock('../src/manifest', () => ({ checkAgyCompatibility: async () => undefined }));
 
@@ -38,10 +46,12 @@ describe('handing over to agy', () => {
 
   beforeEach(() => {
     mockLaunched.length = 0;
+    mockTouched.length = 0;
     interruptListeners = process.listeners('SIGINT');
   });
 
   afterEach(() => {
+    process.exitCode = undefined;
     process.argv = previousArgv;
     if (previousBin === undefined) delete process.env.AGY_BIN;
     else process.env.AGY_BIN = previousBin;
@@ -74,5 +84,48 @@ describe('handing over to agy', () => {
     // The status lines are still there for a person to read.
     expect(stderr.join('\n')).toMatch(/patched/);
     expect(stderr.join('\n')).toMatch(/proxy.*50998/i);
+  });
+
+  // A typo in AGY_BIN must not make the wrapper patch, restore or start a different agy.
+  test.each([
+    ['starting agy', ['-p', 'hello']],
+    ['restore', ['restore']],
+  ])('stops before %s when AGY_BIN names a missing file', async (_name, args) => {
+    const stderr: string[] = [];
+    jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    jest.spyOn(console, 'error').mockImplementation((...parts: unknown[]) => void stderr.push(parts.join(' ')));
+    const missing = process.execPath + '.does-not-exist';
+    process.env.AGY_BIN = missing;
+    process.argv = ['node', 'cli.js', ...args];
+
+    jest.isolateModules(() => {
+      require('../src/cli');
+    });
+    await waitFor(() => stderr.length > 0 || process.exitCode !== undefined);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(mockTouched).toEqual([]);
+    expect(mockLaunched).toEqual([]);
+    expect(stderr.join('\n')).toContain('AGY_BIN');
+    expect(stderr.join('\n')).toContain(missing);
+    expect(process.exitCode).toBe(1);
+  });
+
+  test('configure names the problem instead of another agy', async () => {
+    const lines: string[] = [];
+    jest.spyOn(console, 'log').mockImplementation((...parts: unknown[]) => void lines.push(parts.join(' ')));
+    jest.spyOn(console, 'error').mockImplementation((...parts: unknown[]) => void lines.push(parts.join(' ')));
+    const missing = process.execPath + '.does-not-exist';
+    process.env.AGY_BIN = missing;
+    process.argv = ['node', 'cli.js', 'configure'];
+
+    jest.isolateModules(() => {
+      require('../src/cli');
+    });
+    await waitFor(() => lines.some((line) => line.startsWith('agy binary')));
+
+    const line = lines.find((entry) => entry.startsWith('agy binary'))!;
+    expect(line).toContain('AGY_BIN');
+    expect(line).toContain(missing);
   });
 });

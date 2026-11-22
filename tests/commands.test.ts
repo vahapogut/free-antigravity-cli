@@ -2,7 +2,8 @@
  * Which invocations the wrapper handles itself, which it hands to agy, and how agy is started.
  */
 import { routeCommand } from '../src/commands';
-import { launchAgy, readAgyVersion } from '../src/agy';
+import * as path from 'path';
+import { launchAgy, readAgyVersion, locateAgy } from '../src/agy';
 
 describe('command routing', () => {
   test.each([
@@ -112,5 +113,64 @@ describe('starting agy', () => {
       throw new Error('spawn failed');
     }) as unknown as Parameters<typeof readAgyVersion>[1];
     expect(readAgyVersion('/missing/agy', run)).toBeNull();
+  });
+});
+
+/**
+ * Which agy binary the wrapper patches and starts. AGY_BIN is the user's explicit choice: when it
+ * names a file that does not exist, falling back to another agy would patch and run a binary the
+ * user did not pick.
+ */
+describe('finding agy', () => {
+  const home = path.join(path.sep, 'home', 'someone');
+
+  function lookup(options: { env?: Record<string, string>; files?: string[]; onPath?: string | null; platform?: NodeJS.Platform }) {
+    const searched: string[] = [];
+    const checked: string[] = [];
+    const files = new Set(options.files || []);
+    const result = locateAgy({
+      env: options.env || {},
+      exists: (file) => {
+        checked.push(file);
+        return files.has(file);
+      },
+      searchPath: () => {
+        searched.push('PATH');
+        return options.onPath ?? null;
+      },
+      platform: options.platform || 'linux',
+      home,
+    });
+    return { result, searched, checked };
+  }
+
+  test('uses AGY_BIN when it names an existing file', () => {
+    const { result, searched } = lookup({ env: { AGY_BIN: '/opt/agy/agy' }, files: ['/opt/agy/agy'], onPath: '/usr/bin/agy' });
+    expect(result).toEqual({ path: '/opt/agy/agy' });
+    expect(searched).toEqual([]);
+  });
+
+  test('stops with an error when AGY_BIN names a file that does not exist', () => {
+    const { result, searched, checked } = lookup({ env: { AGY_BIN: '/opt/agy/agy-typo' }, onPath: '/usr/bin/agy' });
+    expect('error' in result).toBe(true);
+    const message = (result as { error: string }).error;
+    expect(message).toContain('AGY_BIN');
+    expect(message).toContain('/opt/agy/agy-typo');
+    // No other agy is even looked for.
+    expect(searched).toEqual([]);
+    expect(checked).toEqual(['/opt/agy/agy-typo']);
+  });
+
+  test.each([[{}], [{ AGY_BIN: '' }]])('looks on PATH when AGY_BIN is not set (%j)', (env) => {
+    const { result } = lookup({ env, onPath: '/usr/bin/agy' });
+    expect(result).toEqual({ path: '/usr/bin/agy' });
+  });
+
+  test('falls back to the usual install locations, then to the default path', () => {
+    const installed = path.join(home, '.local', 'share', 'agy', 'bin', 'agy');
+    expect(lookup({ files: [installed] }).result).toEqual({ path: installed });
+    expect(lookup({}).result).toEqual({ path: installed });
+    const windowsDefault = path.join(home, 'AppData', 'Local', 'agy', 'bin', 'agy.exe');
+    expect(lookup({ platform: 'win32' }).result).toEqual({ path: windowsDefault });
   });
 });
