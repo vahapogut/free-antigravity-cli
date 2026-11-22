@@ -3,7 +3,6 @@
  * Free Antigravity CLI - Community Edition
  * Wraps the official agy CLI with custom model support via a local proxy.
  */
-import { execSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -11,56 +10,19 @@ import inquirer from 'inquirer';
 import { addModel, removeModel, listModels, saveModels, fromDesktopModels, getModelsPath, CustomModelEntry } from './config';
 import { startProxy, getProxyPort, stopProxy } from './proxy';
 import { checkAgyCompatibility } from './manifest';
-import { launchAgy, readAgyVersion } from './agy';
+import { launchAgy, readAgyVersion, locateAgy } from './agy';
 import { ensureAgyPatched, restoreAgy } from './agyPatch';
 import { routeCommand, ModelsSubcommand } from './commands';
 
-function searchInPath(): string | null {
-  try {
-    const cmd = os.platform() === 'win32' ? 'where agy' : 'which agy';
-    const out = execSync(cmd, { stdio: 'pipe' }).toString().trim().split('\r\n')[0].split('\n')[0];
-    if (out && fs.existsSync(out)) return out;
-  } catch (e) {
-    if (process.env.ANTIGRAVITY_DEBUG === 'true') {
-      console.debug('[Debug] searchInPath failed:', (e as Error).message);
-    }
+/** The agy binary to use, or null after printing why there is none to use. */
+function getAgyBin(): string | null {
+  const location = locateAgy();
+  if ('error' in location) {
+    console.error(`[Error] ${location.error}`);
+    process.exitCode = 1;
+    return null;
   }
-  return null;
-}
-
-function getAgyBin(): string {
-  // 1. User Override
-  if (process.env.AGY_BIN && fs.existsSync(process.env.AGY_BIN)) {
-    return process.env.AGY_BIN;
-  }
-
-  // 2. PATH Search
-  const pathBin = searchInPath();
-  if (pathBin) return pathBin;
-
-  // 3. OS-specific defaults
-  const isWin = os.platform() === 'win32';
-  const binName = isWin ? 'agy.exe' : 'agy';
-  const locations = [
-    // Windows default
-    path.join(os.homedir(), 'AppData', 'Local', 'agy', 'bin', binName),
-    // macOS default Application Support
-    path.join(os.homedir(), 'Library', 'Application Support', 'agy', 'bin', binName),
-    // macOS/Linux local share
-    path.join(os.homedir(), '.local', 'share', 'agy', 'bin', binName),
-    // macOS/Linux local bin fallback
-    path.join(os.homedir(), '.local', 'bin', binName),
-  ];
-
-  for (const loc of locations) {
-    if (fs.existsSync(loc)) return loc;
-  }
-
-  // 4. Default fallback based on platform
-  if (isWin) {
-    return path.join(os.homedir(), 'AppData', 'Local', 'agy', 'bin', 'agy.exe');
-  }
-  return path.join(os.homedir(), '.local', 'share', 'agy', 'bin', 'agy');
+  return location.path;
 }
 
 async function ensureProxy(): Promise<number> {
@@ -91,6 +53,7 @@ function getVersion(): string {
 async function startAndDelegate(agyArgs: string[]): Promise<void> {
   // agy starts interactive mode by default when no flags are given
   const agyBin = getAgyBin();
+  if (agyBin === null) return;
 
   if (!fs.existsSync(agyBin)) {
     console.error(`\n[Error] agy CLI not found!`);
@@ -234,12 +197,15 @@ async function main(): Promise<void> {
     console.log(`Models file: ${getModelsPath()}`);
     console.log(`Models configured: ${listModels().length}`);
     console.log(`Proxy: ${getProxyPort() ? `port ${getProxyPort()}` : 'not running'}`);
-    console.log(`agy binary: ${getAgyBin()}`);
+    const location = locateAgy();
+    console.log(`agy binary: ${'error' in location ? `none (${location.error})` : location.path}`);
     return;
   }
 
   if (route.kind === 'restore') {
-    const result = restoreAgy(getAgyBin());
+    const agyBin = getAgyBin();
+    if (agyBin === null) return;
+    const result = restoreAgy(agyBin);
     if (result.status === 'restored') console.log(`agy was restored from ${result.backup}.`);
     else if (result.status === 'not-patched') console.log('agy is not patched; there is nothing to restore.');
     else { console.error(`[Error] ${result.message}`); process.exitCode = 1; }

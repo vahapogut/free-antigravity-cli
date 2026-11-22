@@ -414,6 +414,37 @@ export function fixParamTypes(properties: Record<string, unknown> | undefined): 
   }
 }
 
+// Gemini proto schemas encode int64 keywords (minLength, minItems, ...) as strings; JSON Schema needs numbers.
+const NUMERIC_SCHEMA_KEYWORDS = new Set([
+  'minLength', 'maxLength', 'minItems', 'maxItems', 'minProperties', 'maxProperties',
+  'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf',
+]);
+
+/**
+ * Converts stringified numeric keywords in a tool schema to numbers, in place. Properties that
+ * happen to be named like a keyword (a parameter called "minLength") are left alone.
+ * Needed for every provider that reads the schema as JSON Schema (#7 for Anthropic, #11 for
+ * OpenAI-compatible servers such as llama.cpp).
+ */
+export function fixNumericSchemaKeywords(node: unknown): void {
+  if (Array.isArray(node)) {
+    node.forEach(fixNumericSchemaKeywords);
+    return;
+  }
+  if (!node || typeof node !== 'object') return;
+  const obj = node as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (NUMERIC_SCHEMA_KEYWORDS.has(key) && typeof val === 'string' && val.trim() !== '' && !isNaN(Number(val))) {
+      obj[key] = Number(val);
+    } else if (key === 'properties' && val && typeof val === 'object') {
+      Object.values(val as Record<string, unknown>).forEach(fixNumericSchemaKeywords);
+    } else if (val && typeof val === 'object') {
+      fixNumericSchemaKeywords(val);
+    }
+  }
+}
+
 /**
  * Translates generic shell/terminal commands (run_command) into native Antigravity file tools.
  */

@@ -81,6 +81,7 @@ antigravity
   ```bash
   export AGY_BIN="/path/to/custom/agy"
   ```
+  If `AGY_BIN` names a file that does not exist, the CLI stops with an error. It does not look for another `agy`, so a typo never patches or starts a binary you did not choose.
 
 
 ## Commands
@@ -430,6 +431,11 @@ rm -rf ~/.free-antigravity
 
 
 ## Changelog
+
+### v1.2.1 (2026-11-22)
+
+- **fix**: Tool schemas sent to OpenAI-compatible providers (`openai`, `custom`, `ollama`, `openrouter`, `groq`, ...) carry `minLength`, `maxItems` and similar keywords as numbers. agy sends them as strings, and servers that build a grammar from the schema, such as llama.cpp, rejected the request (#11). The `anthropic`, `llamacpp` and `lmstudio` providers already did this in 1.2.0.
+- **fix**: An `AGY_BIN` that names a missing file is an error now. Earlier versions quietly used the `agy` on PATH or in the default location instead, and patched, restored or started that one. `antigravity configure` shows the problem too.
 
 ### v1.2.0 (2026-11-11)
 

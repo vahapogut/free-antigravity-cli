@@ -38,6 +38,40 @@ describe('OpenAI Translator', () => {
     expect(result.candidates[0].finishReason).toBe('STOP');
     expect(result.usageMetadata?.totalTokenCount).toBe(10);
   });
+
+  // #11: agy sends Gemini proto schemas, where int64 keywords are strings ("minLength": "1").
+  // Servers that build a grammar from the schema, such as llama.cpp, reject that with a 400.
+  test('sends schema keywords such as minLength as numbers', () => {
+    const declaration = {
+      name: 'notify_user',
+      description: 'Send a message',
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          Message: { type: 'STRING', minLength: '1' },
+          Paths: { type: 'ARRAY', minItems: '1', maxItems: '20', items: { type: 'STRING', maxLength: '4096' } },
+          minLength: { type: 'STRING', description: 'a property literally named minLength' },
+        },
+        required: ['Message'],
+      },
+    };
+    const geminiBody = {
+      contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+      tools: [{ functionDeclarations: [declaration] }],
+    };
+
+    const result = mapGeminiToOpenAI(geminiBody, 'local-model');
+
+    const parameters = result.tools![0].function.parameters as any;
+    expect(parameters.properties.Message.minLength).toBe(1);
+    expect(parameters.properties.Paths.minItems).toBe(1);
+    expect(parameters.properties.Paths.maxItems).toBe(20);
+    expect(parameters.properties.Paths.items.maxLength).toBe(4096);
+    expect(parameters.properties.minLength).toEqual({ type: 'string', description: 'a property literally named minLength' });
+    expect(parameters.required).toEqual(['Message']);
+    // The request agy sent is not changed.
+    expect(declaration.parameters.properties.Message.minLength).toBe('1');
+  });
 });
 
 describe('Anthropic Translator', () => {

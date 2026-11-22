@@ -7,9 +7,13 @@ import * as path from 'path';
 import { log } from '../../logger';
 import {
   fixParamTypes,
+  fixNumericSchemaKeywords,
   formatTranslatedResponse,
   ToolCallArgs,
 } from './utils';
+
+// Kept here as well: it was first added to this translator (#7).
+export { fixNumericSchemaKeywords };
 import {
   modelToolCallIds,
   activeStreamContexts,
@@ -156,31 +160,6 @@ interface GeminiUsageMetadata {
 }
 
 // ─── REQUEST: Gemini → Anthropic ──────────────────────────────────────────
-
-// Gemini proto schemas encode int64 keywords (minLength, minItems, ...) as strings; JSON Schema needs numbers.
-const NUMERIC_SCHEMA_KEYWORDS = new Set([
-  'minLength', 'maxLength', 'minItems', 'maxItems', 'minProperties', 'maxProperties',
-  'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf',
-]);
-
-export function fixNumericSchemaKeywords(node: unknown): void {
-  if (Array.isArray(node)) {
-    node.forEach(fixNumericSchemaKeywords);
-    return;
-  }
-  if (!node || typeof node !== 'object') return;
-  const obj = node as Record<string, unknown>;
-  for (const key of Object.keys(obj)) {
-    const val = obj[key];
-    if (NUMERIC_SCHEMA_KEYWORDS.has(key) && typeof val === 'string' && val.trim() !== '' && !isNaN(Number(val))) {
-      obj[key] = Number(val);
-    } else if (key === 'properties' && val && typeof val === 'object') {
-      Object.values(val as Record<string, unknown>).forEach(fixNumericSchemaKeywords);
-    } else if (val && typeof val === 'object') {
-      fixNumericSchemaKeywords(val);
-    }
-  }
-}
 
 function mapGeminiToolsToAnthropic(geminiTools: GeminiTool[]): AnthropicTool[] {
   if (!geminiTools || !Array.isArray(geminiTools)) return [];
