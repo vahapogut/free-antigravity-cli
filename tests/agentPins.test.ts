@@ -132,9 +132,9 @@ describe('selectAgentPin', () => {
     expect(selectAgentPin(configured, null)).toBeUndefined();
   });
 
-  test('leaves a role that is not configured unpinned', () => {
-    expect(selectAgentPin(configured, instruction('Agent-Pin: driver'))).toBeUndefined();
-    expect(selectAgentPin(new Map<string, AgentPin>(), instruction('Agent-Pin: reviewer'))).toBeUndefined();
+  test('rejects an explicit marker that is missing from the configured pins', () => {
+    expect(() => selectAgentPin(configured, instruction('Agent-Pin: driver'))).toThrow();
+    expect(() => selectAgentPin(new Map<string, AgentPin>(), instruction('Agent-Pin: reviewer'))).toThrow();
   });
 
   test('refuses repeated and competing markers instead of guessing', () => {
@@ -155,7 +155,6 @@ describe('selectAgentPin', () => {
     'Please Agent-Pin: reviewer now',
     'Agent-Pin: reviewer extra',
     'Agent-Pin: review er',
-    'Agent-Pin: Reviewer',
     '## Agent-Pin: reviewer',
   ];
   test.each(notMarkers)('treats %j as prose, not as a marker', (line) => {

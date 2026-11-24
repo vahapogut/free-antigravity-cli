@@ -113,15 +113,16 @@ function markerRoles(instruction: unknown): string[] {
 }
 
 /**
- * Resolves the pin a request asks for. Without a marker, or when the named role is not
- * configured, the request stays unpinned. Repeated or competing markers are refused, never
- * guessed.
+ * An unmarked request keeps its normal route. An explicit marker must resolve
+ * to exactly one configured pin; otherwise the conversation is not forwarded.
  */
 export function selectAgentPin(pins: ReadonlyMap<string, AgentPin>, instruction: unknown): AgentPin | undefined {
   const roles = markerRoles(instruction);
   if (roles.length > 1) throw new Error('Ambiguous agent pin markers.');
   if (!roles.length) return undefined;
-  return pins.get(roles[0]);
+  const pin = pins.get(roles[0]);
+  if (!pin) throw new Error('No configured pin for this marker.');
+  return pin;
 }
 
 /**

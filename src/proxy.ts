@@ -338,7 +338,7 @@ function handleCustomModelRequest(
 
 // --- Main Request Handler ---
 
-function handleRequest(req: http.IncomingMessage, res: http.ServerResponse, pins: ReadonlyMap<string, AgentPin>): void {
+function handleRequest(req: http.IncomingMessage, res: http.ServerResponse, pins?: ReadonlyMap<string, AgentPin>): void {
   // Only the local agy CLI is served; no CORS headers are sent, so browsers get nothing.
   if (!isLocalClientRequest(req)) {
     const shown = (value: string | undefined) => (value === undefined ? 'none' : JSON.stringify(value.slice(0, 100)));
@@ -529,11 +529,12 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse, pins
       try {
         const reqJson = JSON.parse(fullBody.toString('utf-8')) as Record<string, unknown>;
         const modelName = reqJson.model as string | undefined;
-        if (pins.size) {
+        if (pins) {
           const input = (reqJson.request ?? reqJson) as Record<string, unknown>;
           const instruction = input.systemInstruction ?? input.system_instruction;
           const pin = selectAgentPin(pins, instruction);
           if (pin) {
+            log.debug(`[Proxy] Routing pinned worker to ${pin.model}`);
             const matches = loadCustomModels().filter(m => m.name === pin.model);
             const stream = req.url!.includes('streamGenerateContent') || req.url!.includes('alt=sse');
             void servePinnedWorker(res, pin, matches.length === 1 ? matches[0] : undefined,
@@ -555,7 +556,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse, pins
           }
         }
       } catch (err) {
-        if (pins.size) return pinError(res, 400, 'Invalid worker routing request.');
+        if (pins) return pinError(res, 400, 'Invalid worker request or agent pin marker. Check the configured role name.');
         log.error('[Proxy] Parse error:', err);
       }
     }
@@ -588,7 +589,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse, pins
 export function startProxy(port = 50998): Promise<number> {
   return new Promise((resolve, reject) => {
     const file = process.env.ANTIGRAVITY_AGENT_PINS;
-    const pins = loadAgentPins(file);
+    const pins = file ? loadAgentPins(file) : undefined;
     server = http.createServer((req, res) => handleRequest(req, res, pins));
     server.listen(port, '127.0.0.1', () => {
       proxyPort = (server!.address() as import('net').AddressInfo).port;

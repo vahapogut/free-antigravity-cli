@@ -1,5 +1,6 @@
 import type { ServerResponse } from 'http';
 import type { CustomModel } from '../proxy';
+import { log } from '../logger';
 import { applyContextReserve, type AgentPin } from './agentPins';
 import { getProviderHeaders } from './registry';
 import { getOllamaApiUrl } from './translators/ollama';
@@ -15,6 +16,8 @@ function completionsURL(model: CustomModel): URL {
 }
 
 export function pinError(res: ServerResponse, status: number, message: string): void {
+  // Only locally generated diagnostics reach this helper, never upstream bodies or keys.
+  log.debug(`[Proxy] Worker routing failed (${status}): ${message}`);
   if (res.destroyed) return;
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: { message } }));

@@ -95,4 +95,8 @@ describe('signed-in worker routing', () => {
     expect((await post('Agent-Pin: reviewer\nAgent-Pin: missing')).status).toBe(400);
     expect(seen).toHaveLength(0);
   });
+  test('a misspelled role never sends the worker conversation to the lead provider', async () => {
+    expect((await post('Agent-Pin: reveiwer')).status).toBe(400);
+    expect(seen).toHaveLength(0);
+  });
 });

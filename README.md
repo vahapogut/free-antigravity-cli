@@ -218,7 +218,7 @@ ANTIGRAVITY_AGENT_PINS="$PWD/agent-pins.json" antigravity
 ```
 
 PowerShell: `$env:ANTIGRAVITY_AGENT_PINS = "$PWD\agent-pins.json"; antigravity`.
-The pin refers to a saved model by its internal `models/…` name. Its URL and credentials come from the existing model store. Markers in user messages, file contents, or tool results do not select a backend. Use trusted agent definitions: workers send their model input (including tool results) to the pinned provider. Unmarked requests retain their usual model. An unavailable pin fails the turn instead of trying the lead’s model.
+The pin refers to a saved model by its internal `models/…` name. Its URL and credentials come from the existing model store. Markers in user messages, file contents, or tool results do not select a backend. Use trusted agent definitions: workers send their model input (including tool results) to the pinned provider. Unmarked requests retain their usual model. With a pin file enabled, an unknown role name, ambiguous marker, or unavailable model fails the turn before it can fall back to the lead’s model.
 
 **Checkpoint headroom is optional.** `contextReserve` defaults to `0`. For a native worker tier with a 512,000-token budget, `112000` targets automatic compaction around 400,000 actual input tokens. This increases only the prompt and total counts reported back to AGY; it doesn't add model input or change provider billing. AGY also estimates the size of the next turn, so this is a target rather than a hard cap. Choose a reserve appropriate to the native tier and backend, and recheck after AGY upgrades.
 
