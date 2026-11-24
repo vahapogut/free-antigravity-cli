@@ -236,6 +236,14 @@ describe('mapGeminiToOpenAI with nativeInputs', () => {
 });
 
 describe('mapOpenAIToGemini with nativeToolNames', () => {
+  test('tool calls embedded in provider text keep the worker’s declared name and arguments', () => {
+    const content = '<DSML|tool_calls><DSML|invoke name="run_command"><DSML|parameter name="CommandLine" string="true">ls</DSML|parameter></DSML|invoke></DSML|tool_calls>';
+    const completion = { choices: [{ message: { content }, finish_reason: 'stop' }] };
+    const native = mapOpenAIToGemini(completion, MODEL, { nativeToolNames: true });
+    expect(native.candidates[0].content.parts).toEqual([{ functionCall: { name: 'run_command', args: { CommandLine: 'ls' } } }]);
+    const legacy = mapOpenAIToGemini(completion, MODEL);
+    expect(legacy.candidates[0].content.parts[0].functionCall?.name).toBe('list_dir');
+  });
   test('keeps upstream tool names, args, and ids and writes no shared state', () => {
     const openaiRes = {
       choices: [

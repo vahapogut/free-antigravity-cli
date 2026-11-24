@@ -521,6 +521,7 @@ export function mapOpenAIToGemini(
   const dsml = parseDSMLToolCalls(text);
   if (dsml && dsml.functionCalls.length > 0) {
     const parts: GeminiPart[] = dsml.functionCalls.map((fc) => {
+      if (nativeToolNames) return { functionCall: { name: fc.name, args: fc.args } };
       const na = normalizeToolArgs(fc.name, fc.args);
       const tr = translateToolCallToNative(fc.name, na);
       return { functionCall: { name: tr.name, args: tr.args as Record<string, unknown> } };
