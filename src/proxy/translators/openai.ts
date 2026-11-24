@@ -130,6 +130,8 @@ interface OpenAIChoice {
   message?: {
     // Providers omit or null this on tool-call-only replies.
     content?: string | null;
+    // Refusal-only replies carry the visible text here instead of in `content`.
+    refusal?: string | null;
     reasoning_content?: string;
     reasoning?: string;
     tool_calls?: OpenAIToolCall[];
@@ -239,6 +241,15 @@ export function mapGeminiToOpenAI(
 ): OpenAIRequestBody {
   const messages: OpenAIMessage[] = [];
 
+  // Native mode pairs tool calls with their results using this request's own history only: the pending
+  // ids live in this local map and die with the call. Decision (integrated review): an id-less result
+  // that no earlier call in the same request can answer is a protocol violation and fails the turn.
+  // Fabricating an id (the legacy name-derived fallback) or reading a process-wide map would hand the
+  // worker a result it cannot attribute to a call — the cross-session leak native mode exists to avoid.
+  // Legacy mode keeps its random call ids, global lookup, and name-derived fallback untouched.
+  const pendingCalls = new Map<string, { synthetic: string[]; explicit: string[] }>();
+  let syntheticSeq = 0;
+
   if (geminiBody.systemInstruction && geminiBody.systemInstruction.parts) {
     const systemText = geminiBody.systemInstruction.parts.map((p) => p.text || '').join('');
     if (systemText) {
@@ -256,7 +267,18 @@ export function mapGeminiToOpenAI(
           const toolCalls: OpenAIToolCall[] = [];
           for (const p of item.parts) {
             if (p.functionCall) {
-              const callId = p.functionCall.id || 'call_' + Math.random().toString(36).slice(2, 10);
+              const explicitId = p.functionCall.id || '';
+              const callId =
+                explicitId ||
+                (nativeInputs
+                  ? `call_${p.functionCall.name}_${++syntheticSeq}`
+                  : 'call_' + Math.random().toString(36).slice(2, 10));
+              if (nativeInputs) {
+                // Remember the call by name, in arrival order, so a later id-less result can find it.
+                const pending = pendingCalls.get(p.functionCall.name) || { synthetic: [], explicit: [] };
+                (explicitId ? pending.explicit : pending.synthetic).push(callId);
+                pendingCalls.set(p.functionCall.name, pending);
+              }
               let originalName = p.functionCall.name;
               let originalArgs = p.functionCall.args;
               const translatedInfo = nativeInputs ? undefined : translatedToolCalls.get(callId);
@@ -281,9 +303,16 @@ export function mapGeminiToOpenAI(
                 .map((p) => p.text || '')
                 .join('')
             : '';
+          // ...and so does the text AGY showed the user beside that call; legacy still nulls content.
+          const visibleText = nativeInputs
+            ? item.parts
+                .filter((p) => !p.thought)
+                .map((p) => p.text || '')
+                .join('')
+            : '';
           messages.push({
             role: 'assistant',
-            content: null,
+            content: visibleText || null,
             tool_calls: toolCalls,
             ...(thoughts ? { reasoning_content: thoughts } : {}),
           });
@@ -291,9 +320,33 @@ export function mapGeminiToOpenAI(
           for (const p of item.parts) {
             if (p.functionResponse) {
               const funcName = p.functionResponse.name || '';
-              // Native mode never falls back to process-wide ids; the worker's replay carries its own.
-              const modelTCIds = nativeInputs ? {} : modelToolCallIds.get(modelName) || {};
-              const toolCallId = p.functionResponse.id || modelTCIds[funcName] || 'call_' + funcName;
+              let toolCallId = p.functionResponse.id || '';
+              if (toolCallId && nativeInputs) {
+                const pending = pendingCalls.get(funcName);
+                if (pending) {
+                  for (const queue of [pending.explicit, pending.synthetic]) {
+                    const index = queue.indexOf(toolCallId);
+                    if (index >= 0) { queue.splice(index, 1); break; }
+                  }
+                }
+              } else if (nativeInputs) {
+                // Pair with this request's own call: prefer one that also lacked an id, so a mixed
+                // history cannot steal an explicit id that its own result still carries.
+                const pending = pendingCalls.get(funcName);
+                const queue = pending && (pending.synthetic.length ? pending.synthetic : pending.explicit);
+                const paired = queue && queue.shift();
+                if (!paired) {
+                  throw new Error(
+                    `Native worker history has a functionResponse for "${funcName}" with no id and no matching tool call in the same request`,
+                  );
+                }
+                toolCallId = paired;
+              }
+              if (!toolCallId) {
+                // Legacy fallbacks: the process-wide id map, then the name-derived id.
+                const modelTCIds = modelToolCallIds.get(modelName) || {};
+                toolCallId = modelTCIds[funcName] || 'call_' + funcName;
+              }
               const responseData = p.functionResponse.response;
               let contentStr = '';
               const translatedInfo = nativeInputs ? undefined : translatedToolCalls.get(toolCallId);
@@ -463,6 +516,44 @@ function parseDSMLToolCalls(text: string): DSMLParsedResult | null {
   }
 }
 
+/** True only for a JSON object, the sole shape tool arguments may take. */
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Native-mode argument decoding (integrated review): the pinned worker validates arguments against the
+ * schema it declared in the same request, so a payload that is not a JSON object can never run. Emptying
+ * it to `{}` would hide a truncated or double-encoded call and replace the real failure with a misleading
+ * schema error, so the turn is rejected instead — pinnedWorker.ts turns the throw into its own 502 and
+ * never echoes the payload. Absent or blank arguments stay `{}` because providers legitimately omit them
+ * for zero-argument tools, and a provider that already sent an object is passed through untouched.
+ */
+function parseNativeToolArgs(tc: OpenAIToolCall): Record<string, unknown> {
+  const raw: unknown = tc.function?.arguments;
+  if (raw === undefined) return {};
+  let parsed: unknown = raw;
+  if (typeof raw === 'string') {
+    if (!raw.trim()) return {};
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error('Pinned tool arguments must be valid JSON.');
+    }
+  }
+  if (!isJsonObject(parsed)) throw new Error('Pinned tool arguments must be a JSON object.');
+  return parsed;
+}
+
+/**
+ * Text the user is meant to see: the provider's `content`, or the `refusal` some models send in its place
+ * when they decline. Whitespace-only text counts as none so it never becomes an empty part.
+ */
+function nativeVisibleText(message: OpenAIChoice['message']): string {
+  if (typeof message?.content === 'string' && message.content.trim()) return message.content;
+  return typeof message?.refusal === 'string' ? message.refusal : '';
+}
+
 export function mapOpenAIToGemini(
   openAiRes: OpenAIResponse,
   modelName: string,
@@ -472,6 +563,11 @@ export function mapOpenAIToGemini(
 
   if (choice?.message?.tool_calls && choice.message.tool_calls.length > 0) {
     const parts: GeminiPart[] = choice.message.tool_calls.map((tc) => {
+      if (nativeToolNames) {
+        // The pinned-worker path validates against the request's own schema; the
+        // name/command heuristics below would rewrite valid calls and leak shared state.
+        return { functionCall: { name: tc.function.name, args: parseNativeToolArgs(tc), id: tc.id } };
+      }
       let args: ToolCallArgs;
       try {
         args =
@@ -481,11 +577,6 @@ export function mapOpenAIToGemini(
       } catch (e) {
         log.debug('[OpenAI] Tool call args parse fallback:', (e as Error).message);
         args = {};
-      }
-      if (nativeToolNames) {
-        // The pinned-worker path validates against the request's own schema; the
-        // name/command heuristics below would rewrite valid calls and leak shared state.
-        return { functionCall: { name: tc.function.name, args: args as Record<string, unknown>, id: tc.id } };
       }
       args = normalizeToolArgs(tc.function.name, args) as ToolCallArgs;
       const modelTCIds = modelToolCallIds.get(modelName) || {};
@@ -505,8 +596,14 @@ export function mapOpenAIToGemini(
       }
       return { functionCall: { name: translated.name, args: translated.args as Record<string, unknown>, id: tc.id } };
     });
-    const thought = choice.message.reasoning_content || choice.message.reasoning;
-    if (nativeToolNames && thought) parts.unshift({ thought: true, text: thought });
+    if (nativeToolNames) {
+      // Gemini part order is thought → visible text → calls, so the worker's own text travels with its
+      // tool turn and the client can replay it (legacy drops it).
+      const visible = nativeVisibleText(choice.message);
+      if (visible) parts.unshift({ text: visible });
+      const thought = choice.message.reasoning_content || choice.message.reasoning;
+      if (thought) parts.unshift({ thought: true, text: thought });
+    }
     return {
       candidates: [{ content: { parts, role: 'model' }, finishReason: 'TOOL_CALL', index: 0 }],
       usageMetadata: {
@@ -517,8 +614,11 @@ export function mapOpenAIToGemini(
     };
   }
 
-  const text = choice?.message?.content || '';
-  const dsml = parseDSMLToolCalls(text);
+  const contentText = choice?.message?.content || '';
+  // Native mode also surfaces a refusal-only reply, whose visible text arrives in `refusal` while
+  // `content` stays null (legacy keeps the empty candidate it always produced).
+  const text = nativeToolNames && !contentText ? nativeVisibleText(choice?.message) : contentText;
+  const dsml = parseDSMLToolCalls(contentText);
   if (dsml && dsml.functionCalls.length > 0) {
     const parts: GeminiPart[] = dsml.functionCalls.map((fc) => {
       if (nativeToolNames) return { functionCall: { name: fc.name, args: fc.args } };
