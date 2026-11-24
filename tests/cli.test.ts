@@ -129,10 +129,11 @@ describe('handing over to agy', () => {
     expect(line).toContain(missing);
   });
 
-  test('an explicitly pinned session does not start agy if its proxy could not start', async () => {
+  test.each([true, false])('does not start agy if its proxy could not start (pins enabled: %s)', async pinned => {
     const prev = process.env.ANTIGRAVITY_AGENT_PINS;
     try {
-      process.env.ANTIGRAVITY_AGENT_PINS = 'worker-pins.json';
+      if (pinned) process.env.ANTIGRAVITY_AGENT_PINS = 'worker-pins.json';
+      else delete process.env.ANTIGRAVITY_AGENT_PINS;
       process.env.AGY_BIN = process.execPath;
       process.argv = ['node', 'cli.js', '-p', 'test'];
       jest.spyOn(console, 'error').mockImplementation(() => undefined);

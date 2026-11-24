@@ -12,7 +12,7 @@ describe('signed-in worker routing', () => {
   const previousPins = process.env.ANTIGRAVITY_AGENT_PINS;
   const seen: { path: string | undefined; headers: http.IncomingHttpHeaders; body: any }[] = [];
   let endpoint: http.Server, client: ReturnType<typeof supertest>;
-  let fail = false, reportedModel: string | undefined;
+  let fail = false, unsolicitedCall = false, reportedModel: string | undefined;
   beforeAll(async () => {
     endpoint = http.createServer(async (req, res) => {
       let raw = '';
@@ -20,7 +20,7 @@ describe('signed-in worker routing', () => {
       const body = JSON.parse(raw);
       seen.push({ path: req.url, headers: req.headers, body });
       if (fail) { res.writeHead(403).end('private upstream diagnostic'); return; }
-      const tool = body.tools && !body.messages.some((m: any) => m.role === 'tool');
+      const tool = unsolicitedCall || (body.tools && !body.messages.some((m: any) => m.role === 'tool'));
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ model: reportedModel ?? body.model, choices: [{ finish_reason: tool ? 'tool_calls' : 'stop',
          message: tool ? { reasoning_content: 'inspect the file', tool_calls: [{ id: 'call1', function: { name: 'view_file', arguments: '{"Path":"sample.txt"}' } }] } : { content: 'done' } }],
@@ -40,11 +40,11 @@ describe('signed-in worker routing', () => {
     await stopProxy(); stopCleanupInterval();
     await new Promise(resolve => endpoint.close(resolve));
   });
-  beforeEach(() => { seen.length = 0; fail = false; reportedModel = undefined; });
-  const post = (text: string, contents: any[] = [], stream = false) => client
+  beforeEach(() => { seen.length = 0; fail = false; unsolicitedCall = false; reportedModel = undefined; });
+  const post = (text: string, contents: any[] = [], stream = false, toolConfig?: object) => client
     .post(`/v1internal:${stream ? 'streamGenerateContent' : 'generateContent'}`)
     .set('Authorization', 'Bearer caller-fixture').send({ model: 'models/lead', project: 'account-envelope',
-      request: { systemInstruction: { role:'user', parts: [{ text }] }, contents,
+      request: { systemInstruction: { role:'user', parts: [{ text }] }, contents, toolConfig,
         tools: [{ functionDeclarations: [{ name: 'view_file', parametersJsonSchema: { type: 'object', properties: { Path: {type:'string'} } } }] }] } });
 
   test('the worker resumes its own tool call and reports checkpoint headroom without changing model input', async () => {
@@ -98,5 +98,15 @@ describe('signed-in worker routing', () => {
   test('a misspelled role never sends the worker conversation to the lead provider', async () => {
     expect((await post('Agent-Pin: reveiwer')).status).toBe(400);
     expect(seen).toHaveLength(0);
+  });
+  test('disabling tools omits declarations and rejects an unsolicited call', async () => {
+    const none = { functionCallingConfig: { mode: 'NONE' } };
+    const text = await post('Agent-Pin: reviewer', [], false, none);
+    expect(seen[0].body.tools).toBeUndefined();
+    expect(text.body.response.candidates[0].content.parts).toEqual([{ text: 'done' }]);
+    unsolicitedCall = true;
+    const refusal = await post('Agent-Pin: reviewer', [], true, none);
+    expect(refusal.status).toBe(502);
+    expect(refusal.text).not.toContain('functionCall');
   });
 });

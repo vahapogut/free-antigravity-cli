@@ -247,14 +247,14 @@ https://daily-cloudcode-pa.googleapis.com  → http://localhost:50998/v1internal
 
 Patches written by earlier versions for port 50999 are moved to the current port.
 
-**Port Isolation:** The CLI proxy uses port **50998** by default, separate from the desktop Antigravity proxy on port 50999. Both can run simultaneously without conflict. If port 50998 is busy, the proxy falls back to a dynamic port automatically.
+**Port Isolation:** The CLI proxy uses port **50998**, separate from the desktop Antigravity proxy on port 50999. Both can run simultaneously. A second CLI wrapper stops if 50998 is busy, so it cannot accidentally use the first session's provider or pins.
 
 #### macOS Code Signing and Quarantine
 On macOS, patching the binary invalidates its code signature. The CLI automatically runs ad-hoc self-signing via `codesign` and clears macOS quarantine flags via `xattr` to ensure the patched binary runs without OS security alerts.
 
 ### Proxy Server
 
-The proxy runs on `http://127.0.0.1:50998` (with automatic fallback if busy) and:
+The proxy runs on `http://127.0.0.1:50998` and:
 
 1. **Intercepts `fetchAvailableModels`**: Merges custom model definitions into both `models` and `agentModelSorts` in the response
 2. **Intercepts `generateContent`/`streamGenerateContent`**: Routes custom model requests to external APIs with format translation
@@ -435,7 +435,7 @@ Desktop Antigravity encrypts API keys for itself, so the CLI cannot read them. T
 
 **Q: Can I run the proxy on a different port?**
 
-The proxy uses port **50998** by default. If that port is busy, it automatically falls back to a dynamic port. You do not need to configure this manually.
+The patched CLI connects to port **50998**. If another wrapper owns the port, close that session before starting a new one.
 
 **Q: Does this work on macOS with Gatekeeper?**
 

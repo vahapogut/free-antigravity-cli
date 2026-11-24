@@ -25,7 +25,7 @@ export function pinError(res: ServerResponse, status: number, message: string): 
 
 export async function servePinnedWorker(
   res: ServerResponse, pin: AgentPin, model: CustomModel | undefined,
-  input: Parameters<typeof mapGeminiToOpenAI>[0], stream: boolean,
+  input: Parameters<typeof mapGeminiToOpenAI>[0] & { toolConfig?: { functionCallingConfig?: { mode?: string } } }, stream: boolean,
 ): Promise<void> {
   if (!model || !model.externalModelName) return pinError(res, 502, 'Pinned custom model is unavailable.');
   if (!['openai', 'custom', 'openrouter', 'ollama'].includes(model.provider))
@@ -36,7 +36,8 @@ export async function servePinnedWorker(
   res.once('close', cancel);
   const timer = setTimeout(cancel, model.timeout || 120_000);
   try {
-    const payload = mapGeminiToOpenAI(input, model.externalModelName, { nativeInputs: true });
+    const toolsDisabled = input.toolConfig?.functionCallingConfig?.mode === 'NONE';
+    const payload = mapGeminiToOpenAI(toolsDisabled ? { ...input, tools: undefined } : input, model.externalModelName, { nativeInputs: true });
     // Buffer one model turn: AGY receives a complete tool call and final usage
     // together, including when its own request expects an SSE envelope.
     const reply = await fetch(completionsURL(model), {
@@ -52,6 +53,8 @@ export async function servePinnedWorker(
       return pinError(res, 502, 'Pinned provider did not return the configured model and a completion.');
     const response = mapOpenAIToGemini(completion, completion.model, { nativeToolNames: true });
     const candidate = response.candidates[0];
+    if (toolsDisabled && candidate.content.parts.some(part => part.functionCall))
+      return pinError(res, 502, 'Pinned provider attempted a tool call when tools were disabled.');
     if (candidate.finishReason === 'TOOL_CALL') candidate.finishReason = 'STOP';
     if (completion.choices[0].finish_reason === 'length') candidate.finishReason = 'MAX_TOKENS';
     const usage = response.usageMetadata;

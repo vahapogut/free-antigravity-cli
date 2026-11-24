@@ -599,20 +599,7 @@ export function startProxy(port = 50998): Promise<number> {
     });
     server.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
-        if (file) {
-          reject(new Error(`Agent pins require the configured proxy port (${port}); it is already in use.`));
-          return;
-        }
-        log.warn(`[Proxy] Port ${port} in use, falling back to dynamic port...`);
-        console.warn(`[Warn] Port ${port} is busy, using dynamic port. Custom models may not appear in agy.`);
-        console.warn(`[Warn] Close other instances or run: taskkill //F //IM agy.exe`);
-        server!.close();
-        server!.listen(0, '127.0.0.1', () => {
-          proxyPort = (server!.address() as import('net').AddressInfo).port;
-          startCleanupInterval();
-          log.info(`[Proxy] Listening on http://127.0.0.1:${proxyPort}`);
-          resolve(proxyPort);
-        });
+        reject(new Error(`The AGY proxy port (${port}) is already in use. Close the existing wrapper session before starting another.`));
       } else { reject(err); }
     });
   });

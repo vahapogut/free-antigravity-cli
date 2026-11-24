@@ -25,17 +25,6 @@ function getAgyBin(): string | null {
   return location.path;
 }
 
-async function ensureProxy(): Promise<number> {
-  try { return await startProxy(); }
-  catch (e) {
-    if (process.env.ANTIGRAVITY_AGENT_PINS) throw e;
-    if (process.env.ANTIGRAVITY_DEBUG === 'true') {
-      console.warn('[Warn] startProxy failed, using cached port:', (e as Error).message);
-    }
-    return getProxyPort() || 50998;
-  }
-}
-
 function getVersion(): string {
   try {
     const pkgPath = path.join(__dirname, '..', 'package.json');
@@ -81,7 +70,9 @@ async function startAndDelegate(agyArgs: string[]): Promise<void> {
     console.error(`[Error] ${patch.message}`);
   }
 
-  const port = await ensureProxy();
+  // The patched binary targets one fixed port; do not launch it until this
+  // process owns that listener, even when this session has no agent pins.
+  const port = await startProxy();
   console.error(`Starting proxy... ready (port ${port})\n`);
 
   const child = launchAgy(agyBin, agyArgs);
