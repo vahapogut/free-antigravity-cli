@@ -201,6 +201,31 @@ antigravity custom-models import
 > **NOTE:** The desktop app encrypts its API keys for itself, so the CLI cannot read them. Those models are imported without a key, and the command lists them. Enter their keys again with `antigravity custom-models add`.
 
 
+### Pin a named subagent to a custom model
+
+In a signed-in `agy` session, a named worker can use a different model from the lead. Add an OpenAI-compatible chat model with `antigravity custom-models add` first. For example, if you entered `local-reviewer` as the model ID, save this pin file:
+
+```json
+{
+  "reviewer": { "model": "models/local-reviewer", "contextReserve": 112000 }
+}
+```
+
+Add the literal line `Agent-Pin: reviewer` to the **instruction body** of the AGY agent definition (after its frontmatter). Start the wrapper with the path to the pin file:
+
+```sh
+ANTIGRAVITY_AGENT_PINS="$PWD/agent-pins.json" antigravity
+```
+
+PowerShell: `$env:ANTIGRAVITY_AGENT_PINS = "$PWD\agent-pins.json"; antigravity`.
+The pin refers to a saved model by its internal `models/…` name. Its URL and credentials come from the existing model store. Markers in user messages, file contents, or tool results do not select a backend. Use trusted agent definitions: workers send their model input (including tool results) to the pinned provider. Unmarked requests retain their usual model. An unavailable pin fails the turn instead of trying the lead’s model.
+
+**Checkpoint headroom is optional.** `contextReserve` defaults to `0`. For a native worker tier with a 512,000-token budget, `112000` targets automatic compaction around 400,000 actual input tokens. This increases only the prompt and total counts reported back to AGY; it doesn't add model input or change provider billing. AGY also estimates the size of the next turn, so this is a target rather than a hard cap. Choose a reserve appropriate to the native tier and backend, and recheck after AGY upgrades.
+
+When a reserve is applied, the loopback response includes `X-Agy-Raw-Prompt-Tokens` and `X-Agy-Context-Reserve` so you can distinguish provider usage from AGY's checkpoint accounting.
+
+Pins currently support `openai`, `custom`, `openrouter`, and `ollama` **chat completions** models. Use the model ID returned by your provider (aliases that return another ID are rejected). Each pinned completion is buffered, then returned to AGY as JSON or one complete streaming event with final tool calls and usage. HTTPS certificates must validate. Restart the wrapper to load changes to the pin file.
+
 ## Technical Details
 
 ### Binary Patching

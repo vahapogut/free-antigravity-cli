@@ -34,6 +34,8 @@ interface GeminiFunctionDeclaration {
   name: string;
   description?: string;
   parameters?: GeminiParameters;
+  /** Full JSON Schema alternative to `parameters`; honored in native mode. */
+  parametersJsonSchema?: Record<string, unknown>;
 }
 
 interface GeminiParameters {
@@ -86,9 +88,11 @@ interface GeminiRequestBody {
   };
 }
 
+type OpenAIContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
+
 interface OpenAIMessage {
   role: string;
-  content: string | null;
+  content: string | OpenAIContentPart[] | null;
   tool_calls?: OpenAIToolCall[];
   tool_call_id?: string;
   reasoning_content?: string;
@@ -124,7 +128,8 @@ interface OpenAIResponse {
 
 interface OpenAIChoice {
   message?: {
-    content: string;
+    // Providers omit or null this on tool-call-only replies.
+    content?: string | null;
     reasoning_content?: string;
     reasoning?: string;
     tool_calls?: OpenAIToolCall[];
@@ -172,16 +177,39 @@ interface DSMLParsedResult {
   cleanText: string;
 }
 
+/**
+ * Request-side native mode for pinned agent workers. The worker's own turn is forwarded
+ * faithfully: `parametersJsonSchema` is honored, thought parts travel with tool calls, and
+ * no cross-session state or local file dereference is involved. Defaults keep legacy behavior.
+ */
+export interface OpenAINativeInputOptions {
+  nativeInputs?: boolean;
+}
+
+/**
+ * Response-side native mode for pinned agent workers. Upstream tool names, arguments, and IDs
+ * pass through untouched — the worker validates calls against the request's own schema, so the
+ * name/argument heuristics would rewrite valid calls. Defaults keep legacy behavior.
+ */
+export interface OpenAINativeToolOptions {
+  nativeToolNames?: boolean;
+}
+
 // ─── REQUEST: Gemini → OpenAI ──────────────────────────────────────────────
 
-function mapGeminiToolsToOpenAI(geminiTools: GeminiTool[]): OpenAITool[] {
+function mapGeminiToolsToOpenAI(
+  geminiTools: GeminiTool[],
+  { nativeInputs = false }: OpenAINativeInputOptions = {},
+): OpenAITool[] {
   if (!geminiTools || !Array.isArray(geminiTools)) return [];
   const openaiTools: OpenAITool[] = [];
   for (const toolGroup of geminiTools) {
     if (toolGroup.functionDeclarations && Array.isArray(toolGroup.functionDeclarations)) {
       for (const func of toolGroup.functionDeclarations) {
-        const params = func.parameters
-          ? (JSON.parse(JSON.stringify(func.parameters)) as Record<string, unknown>)
+        // Native mode takes a declaration's full JSON Schema when present; legacy mode only knows `parameters`.
+        const source = nativeInputs && func.parametersJsonSchema ? func.parametersJsonSchema : func.parameters;
+        const params = source
+          ? (JSON.parse(JSON.stringify(source)) as Record<string, unknown>)
           : { type: 'object', properties: {} };
         if (params.type && typeof params.type === 'string') {
           (params as Record<string, string>).type = (params.type as string).toLowerCase();
@@ -204,7 +232,11 @@ function mapGeminiToolsToOpenAI(geminiTools: GeminiTool[]): OpenAITool[] {
   return openaiTools;
 }
 
-export function mapGeminiToOpenAI(geminiBody: GeminiRequestBody, modelName: string): OpenAIRequestBody {
+export function mapGeminiToOpenAI(
+  geminiBody: GeminiRequestBody,
+  modelName: string,
+  { nativeInputs = false }: OpenAINativeInputOptions = {},
+): OpenAIRequestBody {
   const messages: OpenAIMessage[] = [];
 
   if (geminiBody.systemInstruction && geminiBody.systemInstruction.parts) {
@@ -227,7 +259,7 @@ export function mapGeminiToOpenAI(geminiBody: GeminiRequestBody, modelName: stri
               const callId = p.functionCall.id || 'call_' + Math.random().toString(36).slice(2, 10);
               let originalName = p.functionCall.name;
               let originalArgs = p.functionCall.args;
-              const translatedInfo = translatedToolCalls.get(callId);
+              const translatedInfo = nativeInputs ? undefined : translatedToolCalls.get(callId);
               if (translatedInfo) {
                 originalName = translatedInfo.originalName;
                 originalArgs = { CommandLine: translatedInfo.cmd, Cwd: translatedInfo.cwd };
@@ -242,16 +274,29 @@ export function mapGeminiToOpenAI(geminiBody: GeminiRequestBody, modelName: stri
               });
             }
           }
-          messages.push({ role: 'assistant', content: null, tool_calls: toolCalls });
+          // Native mode replays the worker's own call, so its reasoning travels with the tool turn.
+          const thoughts = nativeInputs
+            ? item.parts
+                .filter((p) => p.thought)
+                .map((p) => p.text || '')
+                .join('')
+            : '';
+          messages.push({
+            role: 'assistant',
+            content: null,
+            tool_calls: toolCalls,
+            ...(thoughts ? { reasoning_content: thoughts } : {}),
+          });
         } else if (hasFunctionResponse) {
           for (const p of item.parts) {
             if (p.functionResponse) {
               const funcName = p.functionResponse.name || '';
-              const modelTCIds = modelToolCallIds.get(modelName) || {};
+              // Native mode never falls back to process-wide ids; the worker's replay carries its own.
+              const modelTCIds = nativeInputs ? {} : modelToolCallIds.get(modelName) || {};
               const toolCallId = p.functionResponse.id || modelTCIds[funcName] || 'call_' + funcName;
               const responseData = p.functionResponse.response;
               let contentStr = '';
-              const translatedInfo = translatedToolCalls.get(toolCallId);
+              const translatedInfo = nativeInputs ? undefined : translatedToolCalls.get(toolCallId);
               if (translatedInfo) {
                 contentStr = formatTranslatedResponse(translatedInfo, responseData);
               } else {
@@ -262,13 +307,36 @@ export function mapGeminiToOpenAI(geminiBody: GeminiRequestBody, modelName: stri
           }
         } else {
           const role = item.role === 'model' ? 'assistant' : item.role || 'user';
-          let content = '';
+          let content: string | OpenAIContentPart[] = '';
           let reasoning_content = '';
           if (role === 'assistant') {
             const regularParts = (item.parts || []).filter((p) => !p.thought);
             const thoughtParts = (item.parts || []).filter((p) => p.thought);
             content = regularParts.map((p) => p.text || '').join('');
             reasoning_content = thoughtParts.map((p) => p.text || '').join('');
+          } else if (nativeInputs) {
+            // Faithful parts, and never a filesystem read: a file reference stays a reference.
+            const parts: OpenAIContentPart[] = [];
+            for (const p of item.parts) {
+              if (p.text) {
+                parts.push({ type: 'text', text: p.text });
+              } else if (p.fileData) {
+                parts.push({
+                  type: 'text',
+                  text: `[File reference: ${p.fileData.fileUri} (${p.fileData.mimeType})]`,
+                });
+              } else if (p.inlineData && p.inlineData.mimeType && p.inlineData.mimeType.startsWith('image/')) {
+                parts.push({
+                  type: 'image_url',
+                  image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` },
+                });
+              } else if (p.inlineData) {
+                parts.push({ type: 'text', text: `[Inline data: ${p.inlineData.mimeType}]` });
+              }
+            }
+            content = parts.every((pt) => pt.type === 'text')
+              ? parts.map((pt) => (pt.type === 'text' ? pt.text : '')).join('\n')
+              : parts;
           } else {
             const parts = item.parts || [];
             const partsContent: string[] = [];
@@ -316,7 +384,8 @@ export function mapGeminiToOpenAI(geminiBody: GeminiRequestBody, modelName: stri
   }
   for (let i = 0; i < messages.length; i++) {
     if (messages[i].role === 'assistant' && !(messages[i] as OpenAIMessage).reasoning_content) {
-      const preservedReasoning = modelReasoningContent.get(modelName) || '';
+      // Native mode takes reasoning from the turn itself, never from the cross-session map.
+      const preservedReasoning = nativeInputs ? '' : modelReasoningContent.get(modelName) || '';
       messages[i].reasoning_content = i === lastAssistantIdx && preservedReasoning ? preservedReasoning : '';
     }
   }
@@ -344,7 +413,7 @@ export function mapGeminiToOpenAI(geminiBody: GeminiRequestBody, modelName: stri
   };
 
   if (geminiBody.tools && Array.isArray(geminiBody.tools)) {
-    const openaiTools = mapGeminiToolsToOpenAI(geminiBody.tools);
+    const openaiTools = mapGeminiToolsToOpenAI(geminiBody.tools, { nativeInputs });
     if (openaiTools.length > 0) payload.tools = openaiTools;
   }
 
@@ -394,7 +463,11 @@ function parseDSMLToolCalls(text: string): DSMLParsedResult | null {
   }
 }
 
-export function mapOpenAIToGemini(openAiRes: OpenAIResponse, modelName: string): GeminiGenerateContentResponse {
+export function mapOpenAIToGemini(
+  openAiRes: OpenAIResponse,
+  modelName: string,
+  { nativeToolNames = false }: OpenAINativeToolOptions = {},
+): GeminiGenerateContentResponse {
   const choice = openAiRes.choices?.[0];
 
   if (choice?.message?.tool_calls && choice.message.tool_calls.length > 0) {
@@ -408,6 +481,11 @@ export function mapOpenAIToGemini(openAiRes: OpenAIResponse, modelName: string):
       } catch (e) {
         log.debug('[OpenAI] Tool call args parse fallback:', (e as Error).message);
         args = {};
+      }
+      if (nativeToolNames) {
+        // The pinned-worker path validates against the request's own schema; the
+        // name/command heuristics below would rewrite valid calls and leak shared state.
+        return { functionCall: { name: tc.function.name, args: args as Record<string, unknown>, id: tc.id } };
       }
       args = normalizeToolArgs(tc.function.name, args) as ToolCallArgs;
       const modelTCIds = modelToolCallIds.get(modelName) || {};
@@ -427,6 +505,8 @@ export function mapOpenAIToGemini(openAiRes: OpenAIResponse, modelName: string):
       }
       return { functionCall: { name: translated.name, args: translated.args as Record<string, unknown>, id: tc.id } };
     });
+    const thought = choice.message.reasoning_content || choice.message.reasoning;
+    if (nativeToolNames && thought) parts.unshift({ thought: true, text: thought });
     return {
       candidates: [{ content: { parts, role: 'model' }, finishReason: 'TOOL_CALL', index: 0 }],
       usageMetadata: {

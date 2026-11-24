@@ -54,6 +54,8 @@ import { validateCustomModel } from './schemaValidator';
 import { isLocalClientRequest, isSafeRequestTarget } from './proxy/requestGuard';
 import { getModelsPath } from './paths';
 import { loadModels } from './config';
+import { type AgentPin, loadAgentPins, selectAgentPin } from './proxy/agentPins';
+import { pinError, servePinnedWorker } from './proxy/pinnedWorker';
 
 // --- Model Helpers ---
 
@@ -336,7 +338,7 @@ function handleCustomModelRequest(
 
 // --- Main Request Handler ---
 
-function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+function handleRequest(req: http.IncomingMessage, res: http.ServerResponse, pins: ReadonlyMap<string, AgentPin>): void {
   // Only the local agy CLI is served; no CORS headers are sent, so browsers get nothing.
   if (!isLocalClientRequest(req)) {
     const shown = (value: string | undefined) => (value === undefined ? 'none' : JSON.stringify(value.slice(0, 100)));
@@ -527,6 +529,18 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       try {
         const reqJson = JSON.parse(fullBody.toString('utf-8')) as Record<string, unknown>;
         const modelName = reqJson.model as string | undefined;
+        if (pins.size) {
+          const input = (reqJson.request ?? reqJson) as Record<string, unknown>;
+          const instruction = input.systemInstruction ?? input.system_instruction;
+          const pin = selectAgentPin(pins, instruction);
+          if (pin) {
+            const matches = loadCustomModels().filter(m => m.name === pin.model);
+            const stream = req.url!.includes('streamGenerateContent') || req.url!.includes('alt=sse');
+            void servePinnedWorker(res, pin, matches.length === 1 ? matches[0] : undefined,
+              { ...input, systemInstruction: instruction } as Parameters<typeof servePinnedWorker>[3], stream);
+            return;
+          }
+        }
         if (modelName) {
           const customModels = loadCustomModels();
           const matched = customModels.find((m) => {
@@ -540,7 +554,10 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
             return;
           }
         }
-      } catch (err) { log.error('[Proxy] Parse error:', err); }
+      } catch (err) {
+        if (pins.size) return pinError(res, 400, 'Invalid worker routing request.');
+        log.error('[Proxy] Parse error:', err);
+      }
     }
 
     // 4. Intercept standard Gemini generateContent for custom models
@@ -570,7 +587,9 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
 export function startProxy(port = 50998): Promise<number> {
   return new Promise((resolve, reject) => {
-    server = http.createServer(handleRequest);
+    const file = process.env.ANTIGRAVITY_AGENT_PINS;
+    const pins = loadAgentPins(file);
+    server = http.createServer((req, res) => handleRequest(req, res, pins));
     server.listen(port, '127.0.0.1', () => {
       proxyPort = (server!.address() as import('net').AddressInfo).port;
       startCleanupInterval();
@@ -579,6 +598,10 @@ export function startProxy(port = 50998): Promise<number> {
     });
     server.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
+        if (file) {
+          reject(new Error(`Agent pins require the configured proxy port (${port}); it is already in use.`));
+          return;
+        }
         log.warn(`[Proxy] Port ${port} in use, falling back to dynamic port...`);
         console.warn(`[Warn] Port ${port} is busy, using dynamic port. Custom models may not appear in agy.`);
         console.warn(`[Warn] Close other instances or run: taskkill //F //IM agy.exe`);

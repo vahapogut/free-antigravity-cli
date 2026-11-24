@@ -28,6 +28,7 @@ function getAgyBin(): string | null {
 async function ensureProxy(): Promise<number> {
   try { return await startProxy(); }
   catch (e) {
+    if (process.env.ANTIGRAVITY_AGENT_PINS) throw e;
     if (process.env.ANTIGRAVITY_DEBUG === 'true') {
       console.warn('[Warn] startProxy failed, using cached port:', (e as Error).message);
     }
@@ -76,6 +77,7 @@ async function startAndDelegate(agyArgs: string[]): Promise<void> {
     console.error('[ok] agy binary patched for custom model support.');
     console.error('     While it is patched, start agy through "antigravity". "antigravity restore" undoes the patch.');
   } else if (patch.status === 'failed' || patch.status === 'unsupported') {
+    if (process.env.ANTIGRAVITY_AGENT_PINS) throw Error('Cannot enforce agent pins: agy could not be patched.');
     console.error(`[Error] ${patch.message}`);
   }
 
