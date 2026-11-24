@@ -128,4 +128,25 @@ describe('handing over to agy', () => {
     expect(line).toContain('AGY_BIN');
     expect(line).toContain(missing);
   });
+
+  test.each([true, false])('does not start agy if its proxy could not start (pins enabled: %s)', async pinned => {
+    const prev = process.env.ANTIGRAVITY_AGENT_PINS;
+    try {
+      if (pinned) process.env.ANTIGRAVITY_AGENT_PINS = 'worker-pins.json';
+      else delete process.env.ANTIGRAVITY_AGENT_PINS;
+      process.env.AGY_BIN = process.execPath;
+      process.argv = ['node', 'cli.js', '-p', 'test'];
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      jest.isolateModules(() => {
+        require('../src/proxy').startProxy.mockRejectedValueOnce(new Error('proxy port busy'));
+        require('../src/cli');
+      });
+      await waitFor(() => process.exitCode !== undefined || mockLaunched.length > 0);
+      expect(process.exitCode).toBe(1);
+      expect(mockLaunched).toHaveLength(0);
+    } finally {
+      if (prev === undefined) delete process.env.ANTIGRAVITY_AGENT_PINS;
+      else process.env.ANTIGRAVITY_AGENT_PINS = prev;
+    }
+  });
 });
