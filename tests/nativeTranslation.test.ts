@@ -591,9 +591,9 @@ describe('mapOpenAIToGemini with nativeToolNames', () => {
     expect(legacy.candidates[0].content.parts.every((p) => !p.text)).toBe(true);
   });
 
-  test('surfaces refusal text when the native reply carries neither content nor tool calls', () => {
+  test.each([null, ' \t\n'])('surfaces refusal text when native content is %j', (content) => {
     const openaiRes = {
-      choices: [{ message: { content: null, refusal: 'I can’t help with that.' }, finish_reason: 'stop' }],
+      choices: [{ message: { content, refusal: 'I can’t help with that.' }, finish_reason: 'stop' }],
       usage: { prompt_tokens: 5, completion_tokens: 6, total_tokens: 11 },
     };
 
@@ -621,8 +621,8 @@ describe('mapOpenAIToGemini with nativeToolNames', () => {
       { functionCall: { name: 'noop_tool', args: {}, id: 'call_r' } },
     ]);
 
-    // Legacy control: a refusal-only reply stayed an empty candidate.
-    expect(mapOpenAIToGemini(openaiRes, MODEL).candidates[0].content.parts).toEqual([]);
+    // Legacy mode uses content alone.
+    expect(mapOpenAIToGemini(openaiRes, MODEL).candidates[0].content.parts).toEqual(content ? [{ text: content }] : []);
   });
 
   test('text and reasoning responses match the legacy mapping', () => {

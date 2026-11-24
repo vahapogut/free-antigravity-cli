@@ -617,7 +617,7 @@ export function mapOpenAIToGemini(
   const contentText = choice?.message?.content || '';
   // Native mode also surfaces a refusal-only reply, whose visible text arrives in `refusal` while
   // `content` stays null (legacy keeps the empty candidate it always produced).
-  const text = nativeToolNames && !contentText ? nativeVisibleText(choice?.message) : contentText;
+  const text = nativeToolNames ? nativeVisibleText(choice?.message) : contentText;
   const dsml = parseDSMLToolCalls(contentText);
   if (dsml && dsml.functionCalls.length > 0) {
     const parts: GeminiPart[] = dsml.functionCalls.map((fc) => {
